@@ -2,7 +2,6 @@ from diagrams import Diagram, Cluster
 from diagrams.onprem.database import MySQL
 from diagrams.onprem.client import Users
 from diagrams.onprem.compute import Server
-from diagrams.saas.chat import Chatgpt
 from diagrams.programming.framework import React
 from diagrams.custom import Custom
 
@@ -21,7 +20,7 @@ with Diagram("Arquitetura SW", show=False, direction="LR"):
 
     # APIs externas
     isbn = Custom("ISBN - Application\n[Container: ISBN API]", "./isbn_icon.png")
-    gpt = Chatgpt("GPT3.5 - Application\n[Container: GPT3.5 API]")
+    gpt = Custom("GPT3.5 - Application\n[Container: GPT3.5 API]", "./chatgpt_icon.png")
 
     # conexões externas
     isbn >> micro
