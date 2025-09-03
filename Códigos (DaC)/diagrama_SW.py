@@ -14,15 +14,12 @@ with Diagram("Arquitetura SW", show=False, direction="LR"):
         micro = Server("MICROSERVICE\n[Container: SpringBoot]\nRegistra e valida cadastro")
         web = React("CLIENT SIDE WEB\n[Container: React]\nTela cadastro/login")
 
-        # conexões internas
         micro >> db
         web >> micro
 
-    # APIs externas
     isbn = Custom("ISBN - Application\n[Container: ISBN API]", "./isbn_icon.png")
     gpt = Custom("GPT3.5 - Application\n[Container: GPT3.5 API]", "./chatgpt_icon.png")
 
-    # conexões externas
     isbn >> micro
     gpt >> micro
     user >> web

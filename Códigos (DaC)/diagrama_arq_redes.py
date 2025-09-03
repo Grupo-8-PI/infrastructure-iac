@@ -25,7 +25,6 @@ with Diagram("AWS Network Architecture", show=False, direction="LR"):
             with Cluster("Private Subnet\n192.168.1.22"):
                 ec2_private3 = EC2("Instance\nSecurity Group")
 
-    # conexões
     internet >> igw >> router
     router >> ec2_public
     router >> ec2_private1

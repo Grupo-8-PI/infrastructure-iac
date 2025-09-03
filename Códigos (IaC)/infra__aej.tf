@@ -13,7 +13,6 @@ provider "aws" {
   region = "us-east-1"
 }
 
-# -------------------- VPC --------------------
 resource "aws_vpc" "vpc_aej" {
   cidr_block = "10.0.0.0/24"
   tags = {
@@ -21,7 +20,6 @@ resource "aws_vpc" "vpc_aej" {
   }
 }
 
-# -------------------- Subnets --------------------
 resource "aws_subnet" "subrede_publica" {
   vpc_id     = aws_vpc.vpc_aej.id
   cidr_block = "10.0.0.0/25"
@@ -38,7 +36,6 @@ resource "aws_subnet" "subrede_privada" {
   }
 }
 
-# -------------------- Internet Gateway --------------------
 resource "aws_internet_gateway" "igw_aej" {
   vpc_id = aws_vpc.vpc_aej.id
   tags = {
@@ -46,7 +43,6 @@ resource "aws_internet_gateway" "igw_aej" {
   }
 }
 
-# -------------------- Route Tables --------------------
 resource "aws_route_table" "route_table_publica" {
   vpc_id = aws_vpc.vpc_aej.id
 
@@ -65,7 +61,6 @@ resource "aws_route_table_association" "subrede_publica" {
   route_table_id = aws_route_table.route_table_publica.id
 }
 
-# Nova Route Table chamada "rt_aej"
 resource "aws_route_table" "rt_aej" {
   vpc_id = aws_vpc.vpc_aej.id
   tags = {
@@ -73,7 +68,6 @@ resource "aws_route_table" "rt_aej" {
   }
 }
 
-# -------------------- Security Groups --------------------
 resource "aws_security_group" "sg_publica" {
   name        = "sg_publica"
   description = "Permite SSH de qualquer IP"
@@ -114,7 +108,6 @@ resource "aws_security_group" "sg_privada" {
   }
 }
 
-# -------------------- EC2 Instances --------------------
 resource "aws_instance" "ec2_publica" {
   ami                         = "ami-0e86e20dae9224db8"
   instance_type               = "t2.micro"
@@ -139,7 +132,6 @@ resource "aws_instance" "ec2_privada" {
   }
 }
 
-# -------------------- S3 Buckets --------------------
 resource "aws_s3_bucket" "staging" {
   bucket = "staging-bucket-aej"
   tags = {
@@ -161,7 +153,6 @@ resource "aws_s3_bucket" "cured" {
   }
 }
 
-# -------------------- Elastic Load Balancer --------------------
 resource "aws_elb" "elb_aej" {
   name   = "elb-aej"
   subnets = [
