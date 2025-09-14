@@ -69,17 +69,12 @@ infrastructure-iac/
    terraform init
    ```
 
-2. **Planejar a infraestrutura**:
-   ```bash
-   terraform plan
-   ```
-
-3. **Aplicar a infraestrutura**:
+2. **Aplicar a infraestrutura**:
    ```bash
    terraform apply
    ```
 
-4. **Destruir a infraestrutura**:
+3. **Destruir a infraestrutura**:
    ```bash
    terraform destroy
    ```
