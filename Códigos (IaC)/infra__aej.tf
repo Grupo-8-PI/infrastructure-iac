@@ -114,6 +114,7 @@ resource "aws_instance" "ec2_publica" {
   subnet_id                   = aws_subnet.subrede_publica.id
   vpc_security_group_ids      = [aws_security_group.sg_publica.id]
   associate_public_ip_address = true
+  key_name                    = aws_key_pair.aej_ssh_access.key_name
 
   tags = {
     Name = "ec2_publica"
@@ -126,31 +127,43 @@ resource "aws_instance" "ec2_privada" {
   subnet_id                   = aws_subnet.subrede_privada.id
   vpc_security_group_ids      = [aws_security_group.sg_privada.id]
   associate_public_ip_address = false
+  key_name                    = aws_key_pair.aej_ssh_access.key_name
+
 
   tags = {
     Name = "ec2_privada"
   }
 }
 
-resource "aws_s3_bucket" "staging" {
+resource "aws_s3_bucket" "aej_staging" {
   bucket = "staging-bucket-aej"
   tags = {
     Name = "staging"
   }
 }
 
-resource "aws_s3_bucket" "trusted" {
+resource "aws_s3_bucket" "aej_trusted" {
   bucket = "trusted-bucket-aej"
   tags = {
     Name = "trusted"
   }
 }
 
-resource "aws_s3_bucket" "cured" {
+resource "aws_s3_bucket" "aej_cured" {
   bucket = "cured-bucket-aej"
   tags = {
     Name = "cured"
   }
+}
+
+resource "tls_private_key" "ssh_key" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+resource "aws_key_pair" "aej_ssh_access" {
+  key_name   = "aej-key"
+  public_key = tls_private_key.ssh_key.public_key_openssh
 }
 
 resource "aws_elb" "elb_aej" {
