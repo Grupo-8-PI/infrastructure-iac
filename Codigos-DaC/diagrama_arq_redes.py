@@ -1,5 +1,5 @@
 from diagrams import Diagram, Cluster
-from diagrams.aws.network import VPC, PublicSubnet, PrivateSubnet, InternetGateway, RouteTable
+from diagrams.aws.network import InternetGateway, RouteTable
 from diagrams.aws.compute import EC2
 from diagrams.onprem.network import Internet
 

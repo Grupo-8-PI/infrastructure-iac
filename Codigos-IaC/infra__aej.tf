@@ -135,22 +135,27 @@ resource "aws_instance" "ec2_privada" {
   }
 }
 
+# Gerar ID aleatório para nomes únicos
+resource "random_id" "bucket_suffix" {
+  byte_length = 4
+}
+
 resource "aws_s3_bucket" "aej_staging" {
-  bucket = "staging-bucket-aej"
+  bucket = "staging-bucket-aej-${random_id.bucket_suffix.hex}"
   tags = {
     Name = "staging"
   }
 }
 
 resource "aws_s3_bucket" "aej_trusted" {
-  bucket = "trusted-bucket-aej"
+  bucket = "trusted-bucket-aej-${random_id.bucket_suffix.hex}"
   tags = {
     Name = "trusted"
   }
 }
 
 resource "aws_s3_bucket" "aej_cured" {
-  bucket = "cured-bucket-aej"
+  bucket = "cured-bucket-aej-${random_id.bucket_suffix.hex}"
   tags = {
     Name = "cured"
   }

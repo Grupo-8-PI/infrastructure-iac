@@ -1,5 +1,5 @@
 from diagrams import Diagram, Cluster
-from diagrams.aws.network import VPC, PublicSubnet, PrivateSubnet, ELB, InternetGateway, RouteTable
+from diagrams.aws.network import ELB, InternetGateway, RouteTable
 from diagrams.aws.compute import EC2
 from diagrams.aws.database import RDS
 from diagrams.aws.storage import S3
