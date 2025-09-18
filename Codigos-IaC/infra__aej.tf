@@ -30,6 +30,7 @@ resource "aws_subnet" "subrede_publica" {
 
 resource "aws_subnet" "subrede_privada" {
   vpc_id     = aws_vpc.vpc_aej.id
+  availability_zone = "us-east-1c"
   cidr_block = "10.0.0.128/25"
   tags = {
     Name = "subrede_privada"
@@ -88,6 +89,28 @@ resource "aws_security_group" "sg_publica" {
   }
 }
 
+resource "aws_security_group" "sg_publica_http" {
+  name = "sg_publica_http"
+  description = "Chamadas HTTP na porta 80"
+  vpc_id      = aws_vpc.vpc_aej.id
+
+  ingress {
+    description = "Chamadas HTTP"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  
+}
+
 resource "aws_security_group" "sg_privada" {
   name        = "sg_privada"
   description = "Permite SSH apenas da VPC"
@@ -120,6 +143,19 @@ resource "aws_instance" "ec2_publica" {
     Name = "ec2_publica"
   }
 }
+resource "aws_instance" "ec2_publica_B" {
+  ami                         = "ami-0e86e20dae9224db8"
+  instance_type               = "t2.micro"
+  subnet_id                   = aws_subnet.subrede_publica.id
+  vpc_security_group_ids      = [aws_security_group.sg_publica.id]
+  associate_public_ip_address = true
+  key_name                    = aws_key_pair.aej_ssh_access.key_name
+
+  tags = {
+    Name = "ec2_publica2"
+  }
+}
+
 
 resource "aws_instance" "ec2_privada" {
   ami                         = "ami-0e86e20dae9224db8"
@@ -135,7 +171,6 @@ resource "aws_instance" "ec2_privada" {
   }
 }
 
-# Gerar ID aleatório para nomes únicos
 resource "random_id" "bucket_suffix" {
   byte_length = 4
 }
@@ -171,30 +206,48 @@ resource "aws_key_pair" "aej_ssh_access" {
   public_key = tls_private_key.ssh_key.public_key_openssh
 }
 
-resource "aws_elb" "elb_aej" {
-  name   = "elb-aej"
-  subnets = [
-    aws_subnet.subrede_publica.id
-  ]
+resource "aws_lb" "alb_principal" {
+  name = "alb-principal"
+  internal = false
+  load_balancer_type = "application"
+  security_groups = [aws_security_group.sg_publica_http.id]
+  subnets = [aws_subnet.subrede_publica.id, aws_subnet.subrede_privada.id]
+}
 
-  listener {
-    instance_port     = 80
-    instance_protocol = "HTTP"
-    lb_port           = 80
-    lb_protocol       = "HTTP"
+resource "aws_lb_listener" "http_listener" {
+  load_balancer_arn = aws_lb.alb_principal.arn
+  port = "80"
+  protocol = "HTTP"
+
+  default_action {
+    type = "forward"
+    target_group_arn = aws_lb_target_group.web_tg.arn
   }
+}
+
+resource "aws_lb_target_group_attachment" "ec2_1_attach" {
+  target_group_arn = aws_lb_target_group.web_tg.arn
+  target_id = aws_instance.ec2_publica.id
+  port= 8080  
+}
+
+
+resource "aws_lb_target_group_attachment" "ec2_2_attach" {
+  target_group_arn = aws_lb_target_group.web_tg.arn
+  target_id = aws_instance.ec2_publica_B.id
+  port= 8080  
+}
+
+resource "aws_lb_target_group" "web_tg" {
+  name = "web-instances-target-group"
+  port = 80
+  protocol = "HTTP"
+  vpc_id = aws_vpc.vpc_aej.id
+  
 
   health_check {
-    target              = "HTTP:80/"
-    interval            = 30
-    timeout             = 5
-    unhealthy_threshold = 2
-    healthy_threshold   = 2
-  }
-
-  instances = [aws_instance.ec2_publica.id]
-
-  tags = {
-    Name = "elb_aej"
+    path = "/"
+    protocol = "HTTP"
+    matcher = "200"
   }
 }
