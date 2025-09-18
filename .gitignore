@@ -2,6 +2,8 @@
 *.tfstate
 *.tfstate.*
 crash.log
+Codigos-IaC/.terraform.lock.hcl
+
 
 # Terraform variable files
 *.tfvars
@@ -13,6 +15,8 @@ crash.log
 # Sensitive files
 .terraformrc
 terraform.rc
+
+
 
 # Local .terraform directories
 .terraform/
