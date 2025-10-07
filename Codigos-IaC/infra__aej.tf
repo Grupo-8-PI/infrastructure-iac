@@ -4,6 +4,22 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.92"
     }
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.5"
+    }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.4"
+    }
   }
 
   required_version = ">= 1.2"
@@ -26,6 +42,7 @@ resource "aws_subnet" "subrede_publica" {
   tags = {
     Name = "subrede_publica"
   }
+  availability_zone = "us-east-1b"
 }
 
 resource "aws_subnet" "subrede_privada" {
@@ -233,6 +250,20 @@ resource "aws_key_pair" "aej_ssh_access" {
   public_key = tls_private_key.ssh_key.public_key_openssh
 }
 
+# Grava a chave privada em um arquivo PEM fora do diretório de execução (na raiz do repo)
+resource "local_file" "ssh_private_key" {
+  content              = tls_private_key.ssh_key.private_key_pem
+  filename             = "${path.root}/../aej-key.pem" # pasta principal do repositório
+  file_permission      = "0600"
+  directory_permission = "0700"
+}
+
+output "ssh_private_key_path" {
+  description = "Caminho local (não versionado) da chave privada gerada"
+  value       = local_file.ssh_private_key.filename
+  sensitive   = true
+}
+
 # resource "aws_lb" "alb_principal" {
 #   name = "alb-principal"
 #   internal = false
@@ -297,4 +328,83 @@ resource "aws_lambda_function" "funcao_lambda1" {
   role = data.aws_iam_role.lab_role.arn
   filename = data.archive_file.lambda_zip.output_path
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
+}
+
+resource "aws_security_group" "rabbitmq_sg" {
+  name        = "rabbitmq-sg"
+  description = "Permite trafego para RabbitMQ e SSH"
+  vpc_id      = aws_vpc.vpc_aej.id
+
+  ingress {
+    description = "SSH access"
+    from_port   = 22
+    to_port     = 22 
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "RabbitMQ AMQP"
+    from_port   = 5672
+    to_port     = 5672
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "RabbitMQ UI"
+    from_port   = 15672
+    to_port     = 15672
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "SG RabbitMQ"
+  }
+}
+
+
+resource "aws_instance" "ec2_publica_rabbitmq" {
+  ami = "ami-0360c520857e3138f"
+  instance_type = "t3.micro" 
+  availability_zone = "us-east-1b"
+  key_name = aws_key_pair.aej_ssh_access.key_name
+  subnet_id = aws_subnet.subrede_publica.id
+  vpc_security_group_ids = [aws_security_group.rabbitmq_sg.id]
+  associate_public_ip_address = true
+
+  user_data = file("rabbit_mq_ubuntu.sh")
+
+  connection {
+    type = "ssh"
+    user = "ubuntu"
+    host = self.public_ip
+    private_key = tls_private_key.ssh_key.private_key_pem
+    timeout     = "5m"
+  }
+
+  provisioner "file" {
+    source      = "compose.yml"
+    destination = "/home/ubuntu/compose.yml"
+  }
+
+  depends_on = [aws_key_pair.aej_ssh_access]
+}
+
+output "rabbitmq_instance_public_ip" {
+  description = "Endereço IP público da instância RabbitMQ"
+  value       = aws_instance.ec2_publica_rabbitmq.public_ipa
+}
+
+output "rabbitmq_ui_url" {
+  description = "URL de acesso à interface de gerenciamento do RabbitMQ"
+  value       = "http://${aws_instance.ec2_publica_rabbitmq.public_ip}:15672"
 }

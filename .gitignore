@@ -15,6 +15,10 @@ Codigos-IaC/.terraform.lock.hcl
 # Sensitive files
 .terraformrc
 terraform.rc
+aej-key.pem
+*.pem
+*.key
+*.crt
 
 
 
