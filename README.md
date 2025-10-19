@@ -121,3 +121,180 @@ A infraestrutura expõe vários outputs úteis que podem ser consumidos por outr
 - IPs das instâncias
 - DNS do Load Balancer
 - IDs dos buckets S3
+
+## Sistema de Processamento de Excel via Lambda e S3
+
+Este projeto inclui uma função Lambda que processa automaticamente arquivos Excel (.xlsx) enviados para o bucket S3.
+
+### 📋 Funcionalidades
+
+- **Trigger Automático**: O Lambda é acionado automaticamente quando arquivos `.xlsx` são enviados para a pasta `datasets/` no S3
+- **Processamento Assíncrono**: Arquivos são processados em background sem necessidade de intervenção
+- **Relatórios JSON**: Gera relatórios de processamento na pasta `outputs/` do bucket
+- **Logs Detalhados**: CloudWatch mantém logs de todas as execuções
+
+### 🚀 Como Usar
+
+#### 1. Após o Deploy da Infraestrutura
+
+Execute o Terraform para criar todos os recursos:
+
+```bash
+cd Codigos-IaC
+terraform init
+terraform apply -auto-approve
+```
+
+#### 2. Obter Informações do Bucket
+
+Após o deploy, veja as informações importantes:
+
+```bash
+terraform output
+```
+
+Você verá informações como:
+- `s3_bucket_name`: Nome do bucket S3 criado
+- `excel_lambda_function_name`: Nome da função Lambda
+- `excel_processing_instructions`: Instruções de uso
+- `s3_website_endpoint`: Endpoint público do bucket
+
+#### 3. Enviar Arquivos Excel para Processamento
+
+**Usando AWS CLI:**
+
+```bash
+# Enviar um único arquivo
+aws s3 cp seu_arquivo.xlsx s3://aej-public-bucket-XXXXXX/datasets/
+
+# Enviar múltiplos arquivos
+aws s3 cp arquivo1.xlsx s3://aej-public-bucket-XXXXXX/datasets/
+aws s3 cp arquivo2.xlsx s3://aej-public-bucket-XXXXXX/datasets/
+
+# Enviar uma pasta inteira
+aws s3 cp ./meus_excels/ s3://aej-public-bucket-XXXXXX/datasets/ --recursive
+```
+
+**Usando Console AWS:**
+1. Acesse o S3 Console
+2. Navegue até o bucket `aej-public-bucket-XXXXXX`
+3. Entre na pasta `datasets/`
+4. Clique em "Upload" e selecione seus arquivos `.xlsx`
+
+#### 4. Verificar os Resultados
+
+**Listar arquivos processados:**
+
+```bash
+# Ver relatórios gerados
+aws s3 ls s3://aej-public-bucket-XXXXXX/outputs/
+
+# Baixar um relatório específico
+aws s3 cp s3://aej-public-bucket-XXXXXX/outputs/processing_report_2025-10-19_21-33-09.json .
+
+# Baixar todos os resultados
+aws s3 cp s3://aej-public-bucket-XXXXXX/outputs/ ./resultados/ --recursive
+```
+
+**Ver logs da execução:**
+
+```bash
+# Listar últimas execuções do Lambda
+aws logs describe-log-streams \
+  --log-group-name "/aws/lambda/excel-processor-terraform" \
+  --order-by LastEventTime \
+  --descending \
+  --max-items 5
+
+# Ver logs de uma execução específica
+aws logs filter-log-events \
+  --log-group-name "/aws/lambda/excel-processor-terraform" \
+  --start-time <timestamp_em_ms>
+```
+
+#### 5. Estrutura de Pastas no S3
+
+```
+s3://aej-public-bucket-XXXXXX/
+├── datasets/              # ← Coloque seus arquivos .xlsx aqui
+│   ├── arquivo1.xlsx
+│   ├── arquivo2.xlsx
+│   └── tabelao_tratado.xlsx
+└── outputs/               # ← Relatórios processados aparecem aqui
+    ├── processing_report_2025-10-19_21-29-53.json
+    └── processing_report_2025-10-19_21-33-09.json
+```
+
+### 🔧 Arquivos do Lambda
+
+- **`excel_processor_lambda.py`**: Código Python da função Lambda
+- **`excel_processor_lambda.zip`**: Pacote ZIP criado automaticamente pelo Terraform
+
+### ⚙️ Configurações Importantes
+
+**Recursos do Lambda:**
+- Runtime: Python 3.9
+- Memória: 3008 MB (máximo disponível)
+- Timeout: 900 segundos (15 minutos)
+- Trigger: S3 ObjectCreated em `datasets/*.xlsx`
+
+**Permissões:**
+- Usa `LabRole` existente no AWS Labs
+- Acesso de leitura/escrita no bucket S3
+- Logs no CloudWatch
+
+### 🧹 Limpeza e Destroy
+
+**Importante**: Antes de destruir a infraestrutura, esvazie o bucket S3:
+
+```bash
+# Remover todos os arquivos do bucket
+aws s3 rm s3://aej-public-bucket-XXXXXX --recursive
+
+# Depois destruir a infraestrutura
+terraform destroy -auto-approve
+```
+
+**Ou configure force_destroy no Terraform** (opcional):
+
+No arquivo `infra__aej.tf`, adicione `force_destroy = true` no recurso do bucket:
+
+```hcl
+resource "aws_s3_bucket" "aej_public" {
+  bucket        = "aej-public-bucket-${random_id.bucket_suffix.hex}"
+  force_destroy = true  # ← Remove automaticamente objetos no destroy
+}
+```
+
+⚠️ **Atenção**: Com `force_destroy = true`, todos os arquivos serão deletados automaticamente ao executar `terraform destroy`.
+
+### 📊 Exemplo de Relatório Gerado
+
+```json
+{
+  "timestamp": "2025-10-19_21-33-09",
+  "trigger_file": "datasets/tabelao_tratado.xlsx",
+  "total_excel_files": 2,
+  "excel_files_list": [
+    "datasets/teste.xlsx",
+    "datasets/tabelao_tratado.xlsx"
+  ],
+  "status": "detected",
+  "message": "Excel files detected - ready for processing"
+}
+```
+
+### 🐛 Troubleshooting
+
+**Problema**: Lambda não está sendo acionado
+- Verifique se o arquivo tem extensão `.xlsx`
+- Confirme que está enviando para a pasta `datasets/`
+- Verifique os logs no CloudWatch
+
+**Problema**: Erro de permissão ao fazer destroy
+- Execute: `aws s3 rm s3://seu-bucket --recursive`
+- Depois execute: `terraform destroy`
+
+**Problema**: Arquivo muito grande (timeout)
+- O timeout está configurado para 15 minutos (máximo)
+- Para arquivos gigantes, considere aumentar recursos ou dividir o arquivo

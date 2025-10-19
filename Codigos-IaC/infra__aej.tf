@@ -310,6 +310,14 @@ output "ssh_private_key_path" {
 #   }
 # }
 
+# Lambda para processamento Excel
+data "archive_file" "excel_processor_zip" {
+  type        = "zip"
+  source_file = "excel_processor_lambda.py"
+  output_path = "excel_processor_lambda.zip"
+}
+
+# Lambda básico original
 data "archive_file" "lambda_zip"{
   type = "zip"
   source_file = "lambda_function.py"
@@ -320,6 +328,63 @@ data "aws_iam_role" "lab_role"{
   name="LabRole"
 }
 
+# Usando LabRole existente para o Lambda de processamento Excel
+# (removido aws_iam_role.excel_lambda_role devido a restrições do AWS Labs)
+
+# CloudWatch Log Group para o Excel Lambda
+resource "aws_cloudwatch_log_group" "excel_lambda_logs" {
+  name              = "/aws/lambda/excel-processor-terraform"
+  retention_in_days = 14
+}
+
+# Lambda Function para processamento Excel (PRINCIPAL)
+resource "aws_lambda_function" "excel_processor" {
+  filename         = data.archive_file.excel_processor_zip.output_path
+  function_name    = "excel-processor-terraform"
+  role            = data.aws_iam_role.lab_role.arn  # Usando LabRole existente
+  handler         = "excel_processor_lambda.lambda_handler"
+  runtime         = "python3.9"
+  timeout         = 900  # 15 minutos (máximo)
+  memory_size     = 3008 # Máximo RAM disponível
+
+  source_code_hash = data.archive_file.excel_processor_zip.output_base64sha256
+
+  environment {
+    variables = {
+      SOURCE_BUCKET = aws_s3_bucket.aej_public.bucket
+      OUTPUT_BUCKET = aws_s3_bucket.aej_public.bucket
+    }
+  }
+
+  depends_on = [
+    aws_cloudwatch_log_group.excel_lambda_logs
+  ]
+}
+
+# S3 trigger para o Lambda (quando arquivo .xlsx é enviado)
+resource "aws_s3_bucket_notification" "excel_upload_trigger" {
+  bucket = aws_s3_bucket.aej_public.id
+
+  lambda_function {
+    lambda_function_arn = aws_lambda_function.excel_processor.arn
+    events              = ["s3:ObjectCreated:*"]
+    filter_prefix       = "datasets/"
+    filter_suffix       = ".xlsx"
+  }
+
+  depends_on = [aws_lambda_permission.allow_s3_invoke]
+}
+
+# Permissão para S3 invocar o Lambda
+resource "aws_lambda_permission" "allow_s3_invoke" {
+  statement_id  = "AllowExecutionFromS3Bucket"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.excel_processor.function_name
+  principal     = "s3.amazonaws.com"
+  source_arn    = aws_s3_bucket.aej_public.arn
+}
+
+# Lambda básico original (mantido)
 resource "aws_lambda_function" "funcao_lambda1" {
   function_name = "funcao1-terraform"
   handler = "lambda_function.lambda_handler"
@@ -401,10 +466,41 @@ resource "aws_instance" "ec2_publica_rabbitmq" {
 
 output "rabbitmq_instance_public_ip" {
   description = "Endereço IP público da instância RabbitMQ"
-  value       = aws_instance.ec2_publica_rabbitmq.public_ipa
+  value       = aws_instance.ec2_publica_rabbitmq.public_ip
 }
 
 output "rabbitmq_ui_url" {
   description = "URL de acesso à interface de gerenciamento do RabbitMQ"
   value       = "http://${aws_instance.ec2_publica_rabbitmq.public_ip}:15672"
+}
+
+# Outputs do S3 e Lambda Excel
+output "s3_bucket_name" {
+  description = "Nome do bucket S3 público"
+  value       = aws_s3_bucket.aej_public.bucket
+}
+
+output "s3_website_endpoint" {
+  description = "URL público do website S3"
+  value       = aws_s3_bucket_website_configuration.aej_public_website.website_endpoint
+}
+
+output "excel_lambda_function_name" {
+  description = "Nome da função Lambda para processamento Excel"
+  value       = aws_lambda_function.excel_processor.function_name
+}
+
+output "excel_processing_instructions" {
+  description = "Como usar o processador Excel automatizado"
+  value = <<-EOT
+    COMO USAR:
+    1. Envie arquivos .xlsx para: s3://${aws_s3_bucket.aej_public.bucket}/datasets/
+    2. O Lambda processará automaticamente os arquivos
+    3. Resultado estará em: s3://${aws_s3_bucket.aej_public.bucket}/outputs/tabelao_tratado.xlsx
+    
+    COMANDOS AWS CLI:
+    aws s3 cp arquivo1.xlsx s3://${aws_s3_bucket.aej_public.bucket}/datasets/
+    aws s3 cp arquivo2.xlsx s3://${aws_s3_bucket.aej_public.bucket}/datasets/
+    aws s3 cp s3://${aws_s3_bucket.aej_public.bucket}/outputs/tabelao_tratado.xlsx ./
+  EOT
 }
