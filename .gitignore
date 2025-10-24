@@ -20,6 +20,13 @@ aej-key.pem
 *.key
 *.crt
 
+# Lambda ZIP files
+*.zip
+lambda_function.zip
+staging_to_trusted_lambda.zip
+trusted_to_cured_lambda.zip
+excel_processor_lambda.zip
+
 
 
 # Local .terraform directories
