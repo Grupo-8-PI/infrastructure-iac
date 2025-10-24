@@ -3,7 +3,6 @@ def lambda_handler(event, context):
     return f"Uma coisa é certa: {event.get('body', '')}"
 
     import pandas as pd
-    import os
     from pathlib import Path
 
     # Caminho da pasta com os datasets
@@ -18,7 +17,7 @@ def lambda_handler(event, context):
         excel_files = []
 
         for file in Path(datasets_folder).glob("*.xlsx"):
-            if file.name != "tabelao_tratado.xlsx":  # Evitar incluir o próprio arquivo de saída
+            if file.name != "tabelao_tratado.xlsx":
                 excel_files.append(file)
 
         print(f"Arquivos encontrados: {[f.name for f in excel_files]}")
@@ -56,7 +55,7 @@ def lambda_handler(event, context):
         print("Salvando tabelão...")
         tabelao.to_excel(output_path, index=False)
 
-        print(f"\nTabelão criado com sucesso!")
+        print("\nTabelão criado com sucesso!")
         print(f"Dimensões finais: {tabelao.shape}")
         print(f"Arquivo salvo em: {output_path}")
 

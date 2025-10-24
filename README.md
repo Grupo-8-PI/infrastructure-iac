@@ -51,9 +51,16 @@ infrastructure-iac/
 
 ### Armazenamento
 - **S3 Buckets**:
-  - staging-bucket-aej
-  - trusted-bucket-aej
-  - cured-bucket-aej
+  - **aej-public-bucket**: Bucket público para website e processamento Excel
+  - **aej-staging-bucket**: Dados brutos do pipeline ETL
+  - **aej-trusted-bucket**: Dados limpos (colunas filtradas)
+  - **aej-cured-bucket**: Dados refinados (apenas livros)
+
+### Processamento de Dados
+- **Lambda Functions**:
+  - **excel-processor**: Processa arquivos Excel enviados ao S3
+  - **staging-to-trusted-etl**: Filtra colunas específicas dos dados brutos
+  - **trusted-to-cured-etl**: Filtra apenas registros de livros
 
 ## Como Usar
 
@@ -298,3 +305,212 @@ resource "aws_s3_bucket" "aej_public" {
 **Problema**: Arquivo muito grande (timeout)
 - O timeout está configurado para 15 minutos (máximo)
 - Para arquivos gigantes, considere aumentar recursos ou dividir o arquivo
+
+---
+
+## Pipeline ETL Automatizado (Staging → Trusted → Cured)
+
+Este projeto inclui um pipeline ETL completo e automatizado com três estágios de processamento de dados.
+
+### 📊 Arquitetura do Pipeline
+
+```
+┌─────────────┐      Lambda 1       ┌─────────────┐      Lambda 2       ┌─────────────┐
+│   STAGING   │  ─────────────────> │   TRUSTED   │  ─────────────────> │    CURED    │
+│ (dados raw) │   Filtra Colunas    │ (dados      │   Filtra Livros     │ (livros     │
+│             │   Preenche null     │  limpos)    │   Preenche null     │  apenas)    │
+└─────────────┘                     └─────────────┘                     └─────────────┘
+     CSV/XLSX                            CSV                                  CSV
+```
+
+### 🔄 Estágios do Pipeline
+
+#### **Estágio 1: STAGING (Dados Brutos)**
+Armazena dados originais sem processamento.
+
+#### **Estágio 2: TRUSTED (Dados Limpos)**
+**Lambda**: `staging-to-trusted-etl`
+
+**Transformações aplicadas:**
+- Filtra **apenas** as seguintes colunas:
+  - `data`
+  - `dia da semana`
+  - `feriado`
+  - `product_category_name`
+  - `seller_city`
+  - `seller_state`
+  - `quantidade`
+  - `obra vendida`
+  - `valor pago`
+  - `forma de pagamento`
+- Preenche campos vazios com `null`
+- Normaliza nomes de colunas (case-insensitive)
+
+#### **Estágio 3: CURED (Dados Refinados)**
+**Lambda**: `trusted-to-cured-etl`
+
+**Transformações aplicadas:**
+- Mantém **apenas** registros onde `product_category_name` contém:
+  - `livro`
+  - `book`
+  - `literatura`
+- Remove todas as outras categorias
+- Mantém preenchimento de `null` para campos vazios
+- Gera estatísticas de processamento
+
+### 🚀 Como Usar o Pipeline ETL
+
+#### 1. **Enviar Dados Brutos ao Staging**
+
+```bash
+# Enviar arquivo CSV
+aws s3 cp meus_dados.csv s3://aej-staging-bucket-XXXXXX/
+
+# Enviar múltiplos arquivos
+aws s3 cp ./dados/ s3://aej-staging-bucket-XXXXXX/ --recursive --exclude "*" --include "*.csv"
+```
+
+⚠️ **Importante**: Use arquivos **CSV** para melhor compatibilidade. Excel (.xlsx) requer layer com pandas.
+
+#### 2. **Aguardar Processamento Automático**
+
+O pipeline é totalmente automático:
+
+1. **Lambda 1** detecta arquivo no Staging → processa → salva no Trusted
+2. **Lambda 2** detecta arquivo no Trusted → processa → salva no Cured
+
+```bash
+# Monitorar logs em tempo real
+aws logs tail /aws/lambda/staging-to-trusted-etl --follow
+aws logs tail /aws/lambda/trusted-to-cured-etl --follow
+```
+
+#### 3. **Baixar Dados Processados**
+
+```bash
+# Listar arquivos processados
+aws s3 ls s3://aej-trusted-bucket-XXXXXX/trusted/
+aws s3 ls s3://aej-cured-bucket-XXXXXX/cured/
+
+# Baixar dados limpos (todas colunas filtradas)
+aws s3 cp s3://aej-trusted-bucket-XXXXXX/trusted/ ./dados_trusted/ --recursive
+
+# Baixar dados refinados (apenas livros)
+aws s3 cp s3://aej-cured-bucket-XXXXXX/cured/ ./dados_cured/ --recursive
+```
+
+### 📁 Estrutura de Arquivos nos Buckets
+
+```
+📦 aej-staging-bucket-XXXXXX/
+└── vendas_2024.csv                    # Dados originais
+
+📦 aej-trusted-bucket-XXXXXX/
+└── trusted/
+    └── vendas_2024_trusted_20251019_143022.csv   # Colunas filtradas
+
+📦 aej-cured-bucket-XXXXXX/
+└── cured/
+    └── vendas_2024_cured_20251019_143025.csv     # Apenas livros
+```
+
+### 📋 Exemplo de Transformação
+
+**Entrada (Staging):**
+```csv
+data,dia da semana,feriado,product_category_name,seller_city,quantidade,outra_coluna
+2024-01-01,Segunda,Sim,livros_tecnicos,São Paulo,5,valor_ignorado
+2024-01-02,Terça,Não,eletronicos,Rio de Janeiro,3,outro_valor
+2024-01-03,Quarta,Não,livros_ficcao,Curitiba,2,mais_dados
+```
+
+**Saída Trusted (colunas filtradas):**
+```csv
+data,dia da semana,feriado,product_category_name,seller_city,seller_state,quantidade,obra vendida,valor pago,forma de pagamento
+2024-01-01,Segunda,Sim,livros_tecnicos,São Paulo,null,5,null,null,null
+2024-01-02,Terça,Não,eletronicos,Rio de Janeiro,null,3,null,null,null
+2024-01-03,Quarta,Não,livros_ficcao,Curitiba,null,2,null,null,null
+```
+
+**Saída Cured (apenas livros):**
+```csv
+data,dia da semana,feriado,product_category_name,seller_city,seller_state,quantidade,obra vendida,valor pago,forma de pagamento
+2024-01-01,Segunda,Sim,livros_tecnicos,São Paulo,null,5,null,null,null
+2024-01-03,Quarta,Não,livros_ficcao,Curitiba,null,2,null,null,null
+```
+
+### ⚙️ Configurações dos Lambdas ETL
+
+| Lambda | Memória | Timeout | Trigger | Output |
+|--------|---------|---------|---------|--------|
+| staging-to-trusted | 512 MB | 5 min | S3 `.csv` no Staging | Trusted bucket |
+| trusted-to-cured | 512 MB | 5 min | S3 `.csv` no Trusted | Cured bucket |
+
+### 🔍 Monitoramento e Logs
+
+**Ver execuções recentes:**
+```bash
+# Listar streams de log
+aws logs describe-log-streams \
+  --log-group-name "/aws/lambda/staging-to-trusted-etl" \
+  --order-by LastEventTime \
+  --descending \
+  --max-items 5
+
+# Filtrar logs por período
+aws logs filter-log-events \
+  --log-group-name "/aws/lambda/trusted-to-cured-etl" \
+  --start-time $(date -d '1 hour ago' +%s)000
+```
+
+**Logs incluem:**
+- Arquivo de origem processado
+- Colunas encontradas e mapeadas
+- Número de linhas processadas
+- Estatísticas (total, aceitas, descartadas)
+- Localização do arquivo de saída
+
+### 🧹 Limpeza dos Buckets ETL
+
+Antes de destruir a infraestrutura:
+
+```bash
+# Esvaziar todos os buckets ETL
+aws s3 rm s3://aej-staging-bucket-XXXXXX --recursive
+aws s3 rm s3://aej-trusted-bucket-XXXXXX --recursive
+aws s3 rm s3://aej-cured-bucket-XXXXXX --recursive
+
+# Depois destruir
+terraform destroy -auto-approve
+```
+
+**Ou configure `force_destroy = true`** (já configurado por padrão nos buckets ETL).
+
+### 🐛 Troubleshooting ETL
+
+**Problema**: Lambda não está processando
+- Verifique se o arquivo é `.csv` (Excel requer layer pandas)
+- Confirme que enviou para o bucket correto (staging)
+- Verifique logs no CloudWatch
+
+**Problema**: Colunas não encontradas
+- O Lambda normaliza nomes (case-insensitive)
+- Verifique se as colunas existem no CSV original
+- Veja logs para mapeamento de colunas
+
+**Problema**: Nenhum livro no Cured
+- Verifique se `product_category_name` contém 'livro', 'book' ou 'literatura'
+- Veja estatísticas nos logs do Lambda
+
+**Problema**: Arquivo muito grande
+- Aumente `timeout` e `memory_size` dos Lambdas no Terraform
+- Considere dividir arquivos grandes em chunks menores
+
+### 💡 Dicas de Uso
+
+1. **Use CSV em vez de Excel** para melhor performance e compatibilidade
+2. **Monitore os logs** durante o primeiro processamento para validar mapeamento de colunas
+3. **Teste com arquivo pequeno** primeiro para validar o pipeline
+4. **Revise os outputs** do Terraform para ver nomes dos buckets criados
+
+---

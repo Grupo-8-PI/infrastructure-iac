@@ -46,9 +46,9 @@ resource "aws_subnet" "subrede_publica" {
 }
 
 resource "aws_subnet" "subrede_privada" {
-  vpc_id     = aws_vpc.vpc_aej.id
+  vpc_id            = aws_vpc.vpc_aej.id
   availability_zone = "us-east-1c"
-  cidr_block = "10.0.0.128/25"
+  cidr_block        = "10.0.0.128/25"
   tags = {
     Name = "subrede_privada"
   }
@@ -107,7 +107,7 @@ resource "aws_security_group" "sg_publica" {
 }
 
 resource "aws_security_group" "sg_publica_http" {
-  name = "sg_publica_http"
+  name        = "sg_publica_http"
   description = "Chamadas HTTP na porta 80"
   vpc_id      = aws_vpc.vpc_aej.id
 
@@ -125,7 +125,7 @@ resource "aws_security_group" "sg_publica_http" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-  
+
 }
 
 resource "aws_security_group" "sg_privada" {
@@ -194,7 +194,7 @@ resource "random_id" "bucket_suffix" {
 
 resource "aws_s3_bucket" "aej_public" {
   bucket = "aej-public-bucket-${random_id.bucket_suffix.hex}"
-  
+
   tags = {
     Name = "aej-public"
   }
@@ -238,6 +238,43 @@ resource "aws_s3_bucket_policy" "aej_public_policy" {
   })
 
   depends_on = [aws_s3_bucket_public_access_block.aej_public_pab]
+}
+
+# ========================================
+# BUCKETS ETL (Staging -> Trusted -> Cured)
+# ========================================
+
+# Bucket Staging - dados brutos
+resource "aws_s3_bucket" "staging" {
+  bucket        = "aej-staging-bucket-${random_id.bucket_suffix.hex}"
+  force_destroy = true
+
+  tags = {
+    Name        = "aej-staging"
+    Environment = "ETL"
+  }
+}
+
+# Bucket Trusted - dados limpos (colunas selecionadas)
+resource "aws_s3_bucket" "trusted" {
+  bucket        = "aej-trusted-bucket-${random_id.bucket_suffix.hex}"
+  force_destroy = true
+
+  tags = {
+    Name        = "aej-trusted"
+    Environment = "ETL"
+  }
+}
+
+# Bucket Cured - dados filtrados (apenas livros)
+resource "aws_s3_bucket" "cured" {
+  bucket        = "aej-cured-bucket-${random_id.bucket_suffix.hex}"
+  force_destroy = true
+
+  tags = {
+    Name        = "aej-cured"
+    Environment = "ETL"
+  }
 }
 
 resource "tls_private_key" "ssh_key" {
@@ -301,7 +338,7 @@ output "ssh_private_key_path" {
 #   port = 80
 #   protocol = "HTTP"
 #   vpc_id = aws_vpc.vpc_aej.id
-  
+
 
 #   health_check {
 #     path = "/"
@@ -318,14 +355,14 @@ data "archive_file" "excel_processor_zip" {
 }
 
 # Lambda básico original
-data "archive_file" "lambda_zip"{
-  type = "zip"
+data "archive_file" "lambda_zip" {
+  type        = "zip"
   source_file = "lambda_function.py"
   output_path = "lambda_function.zip"
 }
 
-data "aws_iam_role" "lab_role"{
-  name="LabRole"
+data "aws_iam_role" "lab_role" {
+  name = "LabRole"
 }
 
 # Usando LabRole existente para o Lambda de processamento Excel
@@ -339,13 +376,13 @@ resource "aws_cloudwatch_log_group" "excel_lambda_logs" {
 
 # Lambda Function para processamento Excel (PRINCIPAL)
 resource "aws_lambda_function" "excel_processor" {
-  filename         = data.archive_file.excel_processor_zip.output_path
-  function_name    = "excel-processor-terraform"
-  role            = data.aws_iam_role.lab_role.arn  # Usando LabRole existente
-  handler         = "excel_processor_lambda.lambda_handler"
-  runtime         = "python3.9"
-  timeout         = 900  # 15 minutos (máximo)
-  memory_size     = 3008 # Máximo RAM disponível
+  filename      = data.archive_file.excel_processor_zip.output_path
+  function_name = "excel-processor-terraform"
+  role          = data.aws_iam_role.lab_role.arn # Usando LabRole existente
+  handler       = "excel_processor_lambda.lambda_handler"
+  runtime       = "python3.9"
+  timeout       = 900  # 15 minutos (máximo)
+  memory_size   = 3008 # Máximo RAM disponível
 
   source_code_hash = data.archive_file.excel_processor_zip.output_base64sha256
 
@@ -387,12 +424,136 @@ resource "aws_lambda_permission" "allow_s3_invoke" {
 # Lambda básico original (mantido)
 resource "aws_lambda_function" "funcao_lambda1" {
   function_name = "funcao1-terraform"
-  handler = "lambda_function.lambda_handler"
-  runtime = "python3.9"
+  handler       = "lambda_function.lambda_handler"
+  runtime       = "python3.9"
 
-  role = data.aws_iam_role.lab_role.arn
-  filename = data.archive_file.lambda_zip.output_path
+  role             = data.aws_iam_role.lab_role.arn
+  filename         = data.archive_file.lambda_zip.output_path
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
+}
+
+# ========================================
+# LAMBDAS ETL (Staging -> Trusted -> Cured)
+# ========================================
+
+# Arquivos ZIP para os Lambdas ETL
+data "archive_file" "staging_to_trusted_zip" {
+  type        = "zip"
+  source_file = "staging_to_trusted_lambda.py"
+  output_path = "staging_to_trusted_lambda.zip"
+}
+
+data "archive_file" "trusted_to_cured_zip" {
+  type        = "zip"
+  source_file = "trusted_to_cured_lambda.py"
+  output_path = "trusted_to_cured_lambda.zip"
+}
+
+# CloudWatch Log Groups para os Lambdas ETL
+resource "aws_cloudwatch_log_group" "staging_to_trusted_logs" {
+  name              = "/aws/lambda/staging-to-trusted-etl"
+  retention_in_days = 14
+}
+
+resource "aws_cloudwatch_log_group" "trusted_to_cured_logs" {
+  name              = "/aws/lambda/trusted-to-cured-etl"
+  retention_in_days = 14
+}
+
+# Lambda: Staging -> Trusted (filtra colunas)
+resource "aws_lambda_function" "staging_to_trusted" {
+  filename      = data.archive_file.staging_to_trusted_zip.output_path
+  function_name = "staging-to-trusted-etl"
+  role          = data.aws_iam_role.lab_role.arn
+  handler       = "staging_to_trusted_lambda.lambda_handler"
+  runtime       = "python3.9"
+  timeout       = 300 # 5 minutos
+  memory_size   = 512
+
+  source_code_hash = data.archive_file.staging_to_trusted_zip.output_base64sha256
+
+  environment {
+    variables = {
+      TRUSTED_BUCKET = aws_s3_bucket.trusted.bucket
+    }
+  }
+
+  depends_on = [
+    aws_cloudwatch_log_group.staging_to_trusted_logs
+  ]
+}
+
+# Lambda: Trusted -> Cured (filtra apenas livros)
+resource "aws_lambda_function" "trusted_to_cured" {
+  filename      = data.archive_file.trusted_to_cured_zip.output_path
+  function_name = "trusted-to-cured-etl"
+  role          = data.aws_iam_role.lab_role.arn
+  handler       = "trusted_to_cured_lambda.lambda_handler"
+  runtime       = "python3.9"
+  timeout       = 300 # 5 minutos
+  memory_size   = 512
+
+  source_code_hash = data.archive_file.trusted_to_cured_zip.output_base64sha256
+
+  environment {
+    variables = {
+      CURED_BUCKET = aws_s3_bucket.cured.bucket
+    }
+  }
+
+  depends_on = [
+    aws_cloudwatch_log_group.trusted_to_cured_logs
+  ]
+}
+
+# Permissões para S3 invocar os Lambdas ETL
+resource "aws_lambda_permission" "staging_invoke_lambda" {
+  statement_id  = "AllowS3InvokeFromStaging"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.staging_to_trusted.function_name
+  principal     = "s3.amazonaws.com"
+  source_arn    = aws_s3_bucket.staging.arn
+}
+
+resource "aws_lambda_permission" "trusted_invoke_lambda" {
+  statement_id  = "AllowS3InvokeFromTrusted"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.trusted_to_cured.function_name
+  principal     = "s3.amazonaws.com"
+  source_arn    = aws_s3_bucket.trusted.arn
+}
+
+# S3 Notifications (triggers)
+resource "aws_s3_bucket_notification" "staging_trigger" {
+  bucket = aws_s3_bucket.staging.id
+
+  lambda_function {
+    id                  = "csv-trigger"
+    lambda_function_arn = aws_lambda_function.staging_to_trusted.arn
+    events              = ["s3:ObjectCreated:*"]
+    filter_suffix       = ".csv"
+  }
+
+  lambda_function {
+    id                  = "xlsx-trigger"
+    lambda_function_arn = aws_lambda_function.staging_to_trusted.arn
+    events              = ["s3:ObjectCreated:*"]
+    filter_suffix       = ".xlsx"
+  }
+
+  depends_on = [aws_lambda_permission.staging_invoke_lambda]
+}
+
+resource "aws_s3_bucket_notification" "trusted_trigger" {
+  bucket = aws_s3_bucket.trusted.id
+
+  lambda_function {
+    lambda_function_arn = aws_lambda_function.trusted_to_cured.arn
+    events              = ["s3:ObjectCreated:*"]
+    filter_suffix       = ".csv"
+  }
+
+  depends_on = [aws_lambda_permission.trusted_invoke_lambda]
 }
 
 resource "aws_security_group" "rabbitmq_sg" {
@@ -403,7 +564,7 @@ resource "aws_security_group" "rabbitmq_sg" {
   ingress {
     description = "SSH access"
     from_port   = 22
-    to_port     = 22 
+    to_port     = 22
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -438,20 +599,20 @@ resource "aws_security_group" "rabbitmq_sg" {
 
 
 resource "aws_instance" "ec2_publica_rabbitmq" {
-  ami = "ami-0360c520857e3138f"
-  instance_type = "t3.micro" 
-  availability_zone = "us-east-1b"
-  key_name = aws_key_pair.aej_ssh_access.key_name
-  subnet_id = aws_subnet.subrede_publica.id
-  vpc_security_group_ids = [aws_security_group.rabbitmq_sg.id]
+  ami                         = "ami-0360c520857e3138f"
+  instance_type               = "t3.micro"
+  availability_zone           = "us-east-1b"
+  key_name                    = aws_key_pair.aej_ssh_access.key_name
+  subnet_id                   = aws_subnet.subrede_publica.id
+  vpc_security_group_ids      = [aws_security_group.rabbitmq_sg.id]
   associate_public_ip_address = true
 
   user_data = file("rabbit_mq_ubuntu.sh")
 
   connection {
-    type = "ssh"
-    user = "ubuntu"
-    host = self.public_ip
+    type        = "ssh"
+    user        = "ubuntu"
+    host        = self.public_ip
     private_key = tls_private_key.ssh_key.private_key_pem
     timeout     = "5m"
   }
@@ -492,7 +653,7 @@ output "excel_lambda_function_name" {
 
 output "excel_processing_instructions" {
   description = "Como usar o processador Excel automatizado"
-  value = <<-EOT
+  value       = <<-EOT
     COMO USAR:
     1. Envie arquivos .xlsx para: s3://${aws_s3_bucket.aej_public.bucket}/datasets/
     2. O Lambda processará automaticamente os arquivos
@@ -502,5 +663,57 @@ output "excel_processing_instructions" {
     aws s3 cp arquivo1.xlsx s3://${aws_s3_bucket.aej_public.bucket}/datasets/
     aws s3 cp arquivo2.xlsx s3://${aws_s3_bucket.aej_public.bucket}/datasets/
     aws s3 cp s3://${aws_s3_bucket.aej_public.bucket}/outputs/tabelao_tratado.xlsx ./
+  EOT
+}
+
+# ========================================
+# OUTPUTS DO SISTEMA ETL
+# ========================================
+
+output "etl_staging_bucket" {
+  description = "Nome do bucket Staging (dados brutos)"
+  value       = aws_s3_bucket.staging.bucket
+}
+
+output "etl_trusted_bucket" {
+  description = "Nome do bucket Trusted (dados limpos)"
+  value       = aws_s3_bucket.trusted.bucket
+}
+
+output "etl_cured_bucket" {
+  description = "Nome do bucket Cured (apenas livros)"
+  value       = aws_s3_bucket.cured.bucket
+}
+
+output "etl_instructions" {
+  description = "Como usar o pipeline ETL automatizado"
+  value       = <<-EOT
+    ========================================
+    PIPELINE ETL AUTOMATIZADO
+    ========================================
+    
+    FLUXO: Staging → Trusted → Cured
+    
+    PASSO 1 - ENVIAR DADOS BRUTOS:
+    aws s3 cp seu_arquivo.csv s3://${aws_s3_bucket.staging.bucket}/
+    
+    PASSO 2 - AUTOMÁTICO (Staging → Trusted):
+    - Lambda filtra colunas: data, dia da semana, feriado, product_category_name,
+      seller_city, seller_state, quantidade, obra vendida, valor pago, forma de pagamento
+    - Preenche vazios com 'null'
+    - Salva em: s3://${aws_s3_bucket.trusted.bucket}/trusted/
+    
+    PASSO 3 - AUTOMÁTICO (Trusted → Cured):
+    - Lambda filtra apenas linhas com 'livro' em product_category_name
+    - Mantém preenchimento de 'null' para vazios
+    - Salva em: s3://${aws_s3_bucket.cured.bucket}/cured/
+    
+    BAIXAR DADOS PROCESSADOS:
+    aws s3 ls s3://${aws_s3_bucket.cured.bucket}/cured/
+    aws s3 cp s3://${aws_s3_bucket.cured.bucket}/cured/ ./dados_cured/ --recursive
+    
+    MONITORAR LOGS:
+    aws logs tail /aws/lambda/staging-to-trusted-etl --follow
+    aws logs tail /aws/lambda/trusted-to-cured-etl --follow
   EOT
 }
