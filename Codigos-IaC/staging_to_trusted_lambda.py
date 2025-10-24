@@ -122,7 +122,13 @@ def processar_csv(file_content):
     # Ler CSV removendo BOM (Byte Order Mark) se existir
     # utf-8-sig remove BOM automaticamente
     csv_data = file_content.decode('utf-8-sig')
-    csv_reader = csv.DictReader(io.StringIO(csv_data))
+    csv_reader = csv.DictReader(
+        io.StringIO(csv_data),
+        quoting=csv.QUOTE_MINIMAL,
+        quotechar='"',
+        doublequote=True,
+        skipinitialspace=True
+    )
     
     # Mapear colunas originais para colunas normalizadas
     fieldnames_originais = csv_reader.fieldnames
@@ -151,7 +157,13 @@ def processar_csv(file_content):
         col for col in mapeamento.values()
         if col != 'Data'
     ]
-    writer = csv.DictWriter(output, fieldnames=colunas_saida)
+    writer = csv.DictWriter(
+        output,
+        fieldnames=colunas_saida,
+        quoting=csv.QUOTE_MINIMAL,
+        quotechar='"',
+        doublequote=True
+    )
     writer.writeheader()
     
     linhas_processadas = 0

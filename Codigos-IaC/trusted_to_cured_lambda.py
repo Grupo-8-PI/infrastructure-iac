@@ -86,16 +86,28 @@ def processar_csv_livros(file_content):
     Preenche campos vazios com 'null'.
     """
     
-    # Ler CSV
-    csv_data = file_content.decode('utf-8')
-    csv_reader = csv.DictReader(io.StringIO(csv_data))
+    # Ler CSV com quoting para lidar com quebras de linha dentro de campos
+    csv_data = file_content.decode('utf-8-sig')
+    csv_reader = csv.DictReader(
+        io.StringIO(csv_data),
+        quoting=csv.QUOTE_MINIMAL,
+        quotechar='"',
+        doublequote=True,
+        skipinitialspace=True
+    )
     
     fieldnames = csv_reader.fieldnames
     print(f"Colunas do arquivo: {fieldnames}")
     
     # Criar CSV de saída
     output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer = csv.DictWriter(
+        output,
+        fieldnames=fieldnames,
+        quoting=csv.QUOTE_MINIMAL,
+        quotechar='"',
+        doublequote=True
+    )
     writer.writeheader()
     
     linhas_total = 0
