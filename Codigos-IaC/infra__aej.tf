@@ -744,6 +744,8 @@ resource "aws_s3_bucket" "athena_results" {
 # Athena Workgroup com configuração de output automática
 resource "aws_athena_workgroup" "livros_workgroup" {
   name = "livros_analytics_workgroup"
+  
+  force_destroy = true
 
   configuration {
     enforce_workgroup_configuration    = true
