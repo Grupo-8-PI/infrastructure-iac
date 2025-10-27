@@ -16,49 +16,14 @@
 -- Responde perguntas: 6 (pico de vendas por dia)
 
 SELECT 
-    "Dia da Semana" as dia_da_semana,
-    COUNT(*) as total_vendas,
-    SUM(CAST(Quantidade AS DOUBLE)) as quantidade_total,
-    -- Calcular receita removendo 'R$', pontos de milhar e convertendo vírgula em ponto
-    SUM(
-        CAST(
-            REGEXP_REPLACE(
-                REGEXP_REPLACE(
-                    REGEXP_REPLACE("Valor Pago", 'R\$\s*', ''),
-                    '\.', ''
-                ),
-                ',', '.'
-            ) AS DOUBLE
-        )
-    ) as receita_total,
-    -- Ticket médio
-    AVG(
-        CAST(
-            REGEXP_REPLACE(
-                REGEXP_REPLACE(
-                    REGEXP_REPLACE("Valor Pago", 'R\$\s*', ''),
-                    '\.', ''
-                ),
-                ',', '.'
-            ) AS DOUBLE
-        )
-    ) as ticket_medio
+    "Obra Vendida" as obra_vendida,
+    SUM(CAST(Quantidade AS DOUBLE)) as quantidade_vendida
 FROM vendas_livros
-WHERE "Valor Pago" IS NOT NULL
+WHERE "Obra Vendida" IS NOT NULL
   AND Quantidade IS NOT NULL
-  AND "Dia da Semana" IS NOT NULL
-GROUP BY "Dia da Semana"
-ORDER BY 
-    CASE "Dia da Semana"
-        WHEN 'SEGUNDA-FEIRA' THEN 1
-        WHEN 'TERCA-FEIRA' THEN 2
-        WHEN 'QUARTA-FEIRA' THEN 3
-        WHEN 'QUINTA-FEIRA' THEN 4
-        WHEN 'SEXTA-FEIRA' THEN 5
-        WHEN 'SABADO' THEN 6
-        WHEN 'DOMINGO' THEN 7
-    END;
-
+GROUP BY "Obra Vendida"
+ORDER BY quantidade_vendida DESC
+LIMIT 5;
 
 -- ========================================
 -- QUERY 2: TOP 15 LIVROS POR RECEITA
@@ -68,39 +33,13 @@ ORDER BY
 -- Responde perguntas: 5 (livros com maior receita), 3 (categorias vendendo mais)
 
 SELECT 
-    "Obra Vendida" as obra_vendida,
     product_category_name as categoria,
-    COUNT(*) as numero_vendas,
-    SUM(CAST(Quantidade AS DOUBLE)) as quantidade_vendida,
-    SUM(
-        CAST(
-            REGEXP_REPLACE(
-                REGEXP_REPLACE(
-                    REGEXP_REPLACE("Valor Pago", 'R\$\s*', ''),
-                    '\.', ''
-                ),
-                ',', '.'
-            ) AS DOUBLE
-        )
-    ) as receita_total,
-    AVG(
-        CAST(
-            REGEXP_REPLACE(
-                REGEXP_REPLACE(
-                    REGEXP_REPLACE("Valor Pago", 'R\$\s*', ''),
-                    '\.', ''
-                ),
-                ',', '.'
-            ) AS DOUBLE
-        )
-    ) as preco_medio
+    COUNT(*) as total_vendas
 FROM vendas_livros
-WHERE "Obra Vendida" IS NOT NULL
-  AND "Valor Pago" IS NOT NULL
-GROUP BY "Obra Vendida", product_category_name
-ORDER BY receita_total DESC
-LIMIT 15;
-
+WHERE product_category_name IS NOT NULL
+GROUP BY product_category_name
+ORDER BY total_vendas DESC
+LIMIT 5;
 
 -- ========================================
 -- QUERY 3: ANÁLISE DE SAZONALIDADE MENSAL
