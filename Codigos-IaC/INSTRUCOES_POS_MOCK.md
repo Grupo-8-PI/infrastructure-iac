@@ -99,6 +99,10 @@ LIMIT 10;
 Com dados completos, as queries do Grafana funcionarão perfeitamente:
 
 1. **Acesse Grafana**: http://SEU_IP_PUBLICO:3000
+    **Para acessar com mais facilidade, utilize o seguinte código:**
+
+    **aws ecs describe-tasks --cluster grafana-livros-cluster --tasks $taskArn --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' --output text | ForEach-Object { aws ec2 describe-network-interfaces --network-interface-ids $_ --query 'NetworkInterfaces[0].Association.PublicIp' --output text }**
+
 2. **Login**: admin / aej2025grafana
 3. **Copie queries** de `grafana_queries.sql`
 4. **Crie painéis** conforme `GRAFANA_SETUP.md`
