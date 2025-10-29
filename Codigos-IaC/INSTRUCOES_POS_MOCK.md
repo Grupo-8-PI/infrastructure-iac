@@ -101,7 +101,11 @@ Com dados completos, as queries do Grafana funcionarão perfeitamente:
 1. **Acesse Grafana**: http://SEU_IP_PUBLICO:3000
     **Para acessar com mais facilidade, utilize o seguinte código:**
 
-    **aws ecs describe-tasks --cluster grafana-livros-cluster --tasks $taskArn --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' --output text | ForEach-Object { aws ec2 describe-network-interfaces --network-interface-ids $_ --query 'NetworkInterfaces[0].Association.PublicIp' --output text }**
+    **aws ecs list-tasks --cluster grafana-livros-cluster --service-name grafana-livros-service --output text**
+
+    **aws ecs describe-tasks --cluster grafana-livros-cluster --tasks $taskArn --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' --output text**
+
+    **aws ec2 describe-network-interfaces --network-interface-ids eni-0c6e2bc31e36b6251 --query 'NetworkInterfaces[0].Association.PublicIp' --output text**
 
 2. **Login**: admin / aej2025grafana
 3. **Copie queries** de `grafana_queries.sql`

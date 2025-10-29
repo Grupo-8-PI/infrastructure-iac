@@ -26,43 +26,20 @@ ORDER BY quantidade_vendida DESC
 LIMIT 5;
 
 -- ========================================
--- QUERY 2: TOP 10 LIVROS POR RECEITA TOTAL
+-- QUERY 2: CATEGORIAS DE LIVROS MAIS VENDIDAS
 -- ========================================
--- Objetivo: Identificar quais livros geraram maior receita (não quantidade)
--- Gráfico recomendado: Horizontal Bar Chart
--- Responde perguntas: Quais livros geram mais dinheiro para a biblioteca
+-- Objetivo: Mostrar distribuição de vendas por categoria de livro
+-- Gráfico recomendado: Bar Chart
+-- Responde perguntas: Quais categorias de livros vendem mais
 
 SELECT 
-    "Obra Vendida" as obra,
-    SUM(
-        CAST(
-            REGEXP_REPLACE(
-                REGEXP_REPLACE(
-                    REGEXP_REPLACE("Valor Pago", 'R\$\s*', ''),
-                    '\.', ''
-                ),
-                ',', '.'
-            ) AS DOUBLE
-        )
-    ) as receita_total,
-    COUNT(*) as numero_vendas,
-    AVG(
-        CAST(
-            REGEXP_REPLACE(
-                REGEXP_REPLACE(
-                    REGEXP_REPLACE("Valor Pago", 'R\$\s*', ''),
-                    '\.', ''
-                ),
-                ',', '.'
-            ) AS DOUBLE
-        )
-    ) as ticket_medio
+    product_category_name as categoria,
+    COUNT(*) as total_vendas
 FROM vendas_livros
-WHERE "Obra Vendida" IS NOT NULL
-  AND "Valor Pago" IS NOT NULL
-GROUP BY "Obra Vendida"
-ORDER BY receita_total DESC
-LIMIT 10;
+WHERE product_category_name IS NOT NULL
+GROUP BY product_category_name
+ORDER BY total_vendas DESC
+LIMIT 5;
 
 -- ========================================
 -- QUERY 3: ANÁLISE DE SAZONALIDADE MENSAL
@@ -116,7 +93,6 @@ SELECT
 FROM vendas_livros
 WHERE "Dia da Semana" IS NOT NULL
   AND "Valor Pago" IS NOT NULL
-  AND product_category_name LIKE '%livro%'
 GROUP BY "Dia da Semana"
 ORDER BY 
     CASE "Dia da Semana"
@@ -128,48 +104,6 @@ ORDER BY
         WHEN 'SABADO' THEN 6
         WHEN 'DOMINGO' THEN 7
     END;
-
-
--- ========================================
--- QUERY 5: EVOLUÇÃO TEMPORAL DE VENDAS (SEMANAL)
--- ========================================
--- Objetivo: Mostrar evolução de vendas semana a semana ao longo de 2017-2018
--- Gráfico recomendado: Time Series (Line Chart)
--- Responde perguntas: Tendência de crescimento, identificar picos/quedas específicas
-
-SELECT 
-    DATE_TRUNC('week', CAST(Data AS TIMESTAMP)) as semana,
-    COUNT(*) as total_vendas,
-    SUM(
-        CAST(
-            REGEXP_REPLACE(
-                REGEXP_REPLACE(
-                    REGEXP_REPLACE("Valor Pago", 'R\$\s*', ''),
-                    '\.', ''
-                ),
-                ',', '.'
-            ) AS DOUBLE
-        )
-    ) as receita_semanal,
-    AVG(
-        CAST(
-            REGEXP_REPLACE(
-                REGEXP_REPLACE(
-                    REGEXP_REPLACE("Valor Pago", 'R\$\s*', ''),
-                    '\.', ''
-                ),
-                ',', '.'
-            ) AS DOUBLE
-        )
-    ) as ticket_medio_semanal,
-    COUNT(DISTINCT "Obra Vendida") as obras_diferentes_vendidas
-FROM vendas_livros
-WHERE Data IS NOT NULL
-  AND "Valor Pago" IS NOT NULL
-  AND YEAR(CAST(Data AS TIMESTAMP)) BETWEEN 2017 AND 2018
-GROUP BY DATE_TRUNC('week', CAST(Data AS TIMESTAMP))
-ORDER BY semana;
-
 
 -- ========================================
 -- OBSERVAÇÕES IMPORTANTES
