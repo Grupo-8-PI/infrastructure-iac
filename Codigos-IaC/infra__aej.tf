@@ -1,3 +1,7 @@
+# ========================================
+# TERRAFORM CONFIGURATION
+# ========================================
+
 terraform {
   required_providers {
     aws = {
@@ -29,6 +33,10 @@ provider "aws" {
   region = "us-east-1"
 }
 
+# ========================================
+# NETWORKING - VPC E SUBNETS
+# ========================================
+
 resource "aws_vpc" "vpc_aej" {
   cidr_block = "10.0.0.0/24"
   tags = {
@@ -38,9 +46,18 @@ resource "aws_vpc" "vpc_aej" {
 
 resource "aws_subnet" "subrede_publica" {
   vpc_id     = aws_vpc.vpc_aej.id
-  cidr_block = "10.0.0.0/25"
+  cidr_block = "10.0.0.0/26"
   tags = {
-    Name = "subrede_publica"
+    Name = "subrede_publica_1a"
+  }
+  availability_zone = "us-east-1a"
+}
+
+resource "aws_subnet" "subrede_publica_2" {
+  vpc_id     = aws_vpc.vpc_aej.id
+  cidr_block = "10.0.0.64/26"
+  tags = {
+    Name = "subrede_publica_1b"
   }
   availability_zone = "us-east-1b"
 }
@@ -48,17 +65,51 @@ resource "aws_subnet" "subrede_publica" {
 resource "aws_subnet" "subrede_privada" {
   vpc_id            = aws_vpc.vpc_aej.id
   availability_zone = "us-east-1c"
-  cidr_block        = "10.0.0.128/25"
+  cidr_block        = "10.0.0.128/26"
   tags = {
-    Name = "subrede_privada"
+    Name = "subrede_privada_1c"
   }
 }
+
+resource "aws_subnet" "subrede_privada_2" {
+  vpc_id            = aws_vpc.vpc_aej.id
+  availability_zone = "us-east-1d"
+  cidr_block        = "10.0.0.192/26"
+  tags = {
+    Name = "subrede_privada_1d"
+  }
+}
+
+# ========================================
+# NETWORKING - INTERNET GATEWAY E ROTAS
+# ========================================
 
 resource "aws_internet_gateway" "igw_aej" {
   vpc_id = aws_vpc.vpc_aej.id
   tags = {
     Name = "cco-igw"
   }
+}
+
+# Elastic IP para o NAT Gateway
+resource "aws_eip" "nat_eip" {
+  domain = "vpc"
+  tags = {
+    Name = "nat-gateway-eip-aej"
+  }
+  depends_on = [aws_internet_gateway.igw_aej]
+}
+
+# NAT Gateway na subnet pública (para instâncias privadas acessarem internet)
+resource "aws_nat_gateway" "nat_gw_aej" {
+  allocation_id = aws_eip.nat_eip.id
+  subnet_id     = aws_subnet.subrede_publica.id
+  
+  tags = {
+    Name = "nat-gateway-aej"
+  }
+  
+  depends_on = [aws_internet_gateway.igw_aej]
 }
 
 resource "aws_route_table" "route_table_publica" {
@@ -79,12 +130,37 @@ resource "aws_route_table_association" "subrede_publica" {
   route_table_id = aws_route_table.route_table_publica.id
 }
 
+resource "aws_route_table_association" "subrede_publica_2" {
+  subnet_id      = aws_subnet.subrede_publica_2.id
+  route_table_id = aws_route_table.route_table_publica.id
+}
+
 resource "aws_route_table" "rt_aej" {
   vpc_id = aws_vpc.vpc_aej.id
+  
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.nat_gw_aej.id
+  }
+  
   tags = {
-    Name = "rt_aej"
+    Name = "rt_aej_privada"
   }
 }
+
+resource "aws_route_table_association" "subrede_privada" {
+  subnet_id      = aws_subnet.subrede_privada.id
+  route_table_id = aws_route_table.rt_aej.id
+}
+
+resource "aws_route_table_association" "subrede_privada_2" {
+  subnet_id      = aws_subnet.subrede_privada_2.id
+  route_table_id = aws_route_table.rt_aej.id
+}
+
+# ========================================
+# SECURITY GROUPS
+# ========================================
 
 resource "aws_security_group" "sg_publica" {
   name        = "sg_publica"
@@ -148,6 +224,24 @@ resource "aws_security_group" "sg_privada" {
   }
 }
 
+# ========================================
+# IAM - INSTANCE PROFILE PARA EC2s PRIVADAS
+# ========================================
+
+# IAM Role para EC2s privadas (usando LabRole existente como base)
+# NOTA: No AWS Academy, tentaremos usar a LabRole existente via Instance Profile
+
+# Instance Profile que permite EC2s usarem a LabRole
+resource "aws_iam_instance_profile" "ec2_privada_profile" {
+  name = "ec2-privada-backup-profile"
+  role = data.aws_iam_role.lab_role.name
+
+}
+
+# ========================================
+# EC2 INSTANCES - BLUE ZONE (PÚBLICO)
+# ========================================
+
 resource "aws_instance" "ec2_publica" {
   ami                         = "ami-0e86e20dae9224db8"
   instance_type               = "t2.micro"
@@ -173,6 +267,9 @@ resource "aws_instance" "ec2_publica_B" {
   }
 }
 
+# ========================================
+# EC2 INSTANCES - RED ZONE (PRIVADO)
+# ========================================
 
 resource "aws_instance" "ec2_privada" {
   ami                         = "ami-0e86e20dae9224db8"
@@ -181,12 +278,128 @@ resource "aws_instance" "ec2_privada" {
   vpc_security_group_ids      = [aws_security_group.sg_privada.id]
   associate_public_ip_address = false
   key_name                    = aws_key_pair.aej_ssh_access.key_name
+  iam_instance_profile        = aws_iam_instance_profile.ec2_privada_profile.name
+  user_data                   = <<-EOF
+  #!/bin/bash
+  set -euo pipefail
+  
+  # Log de execução do user_data
+  exec > >(tee /var/log/user-data.log)
+  exec 2>&1
+  
+  echo "=== Iniciando configuração da EC2 Privada ==="
+  echo "Data/Hora: $(date)"
+  
+  # Aguarda inicialização completa do sistema
+  sleep 10
 
+  # Cria os scripts
+  echo "Criando backup_script.sh..."
+  cat <<'SCRIPT_DB' > /home/ubuntu/backup_script.sh
+  ${file("backup_script.sh")}
+  SCRIPT_DB
+
+  echo "Criando cron_job_config.sh..."
+  cat <<'SCRIPT_CRON' > /home/ubuntu/cron_job_config.sh
+  ${file("cron_job_config.sh")}
+  SCRIPT_CRON
+
+  # Verifica se os scripts foram criados
+  if [ ! -f /home/ubuntu/backup_script.sh ]; then
+      echo "ERRO: backup_script.sh não foi criado!"
+      exit 1
+  fi
+  
+  if [ ! -f /home/ubuntu/cron_job_config.sh ]; then
+      echo "ERRO: cron_job_config.sh não foi criado!"
+      exit 1
+  fi
+
+  # Ajusta permissões e proprietário
+  chmod +x /home/ubuntu/backup_script.sh
+  chmod +x /home/ubuntu/cron_job_config.sh
+  chown ubuntu:ubuntu /home/ubuntu/backup_script.sh
+  chown ubuntu:ubuntu /home/ubuntu/cron_job_config.sh
+
+  # Executa configuração do cron
+  echo "Configurando cronjob..."
+  bash /home/ubuntu/cron_job_config.sh
+
+  echo "=== Configuração concluída com sucesso! ==="
+  echo "Logs disponíveis em: /var/log/user-data.log"
+  EOF
 
   tags = {
     Name = "ec2_privada"
   }
 }
+
+resource "aws_instance" "ec2_privada_B" {
+  ami                         = "ami-0e86e20dae9224db8"
+  instance_type               = "t2.micro"
+  subnet_id                   = aws_subnet.subrede_privada_2.id
+  vpc_security_group_ids      = [aws_security_group.sg_privada.id]
+  associate_public_ip_address = false
+  key_name                    = aws_key_pair.aej_ssh_access.key_name
+  iam_instance_profile        = aws_iam_instance_profile.ec2_privada_profile.name
+  user_data                   = <<-EOF
+  #!/bin/bash
+  set -euo pipefail
+  
+  # Log de execução do user_data
+  exec > >(tee /var/log/user-data.log)
+  exec 2>&1
+  
+  echo "=== Iniciando configuração da EC2 Privada B ==="
+  echo "Data/Hora: $(date)"
+  
+  # Aguarda inicialização completa do sistema
+  sleep 10
+
+  # Cria os scripts
+  echo "Criando backup_script.sh..."
+  cat <<'SCRIPT_DB' > /home/ubuntu/backup_script.sh
+  ${file("backup_script.sh")}
+  SCRIPT_DB
+
+  echo "Criando cron_job_config.sh..."
+  cat <<'SCRIPT_CRON' > /home/ubuntu/cron_job_config.sh
+  ${file("cron_job_config.sh")}
+  SCRIPT_CRON
+
+  # Verifica se os scripts foram criados
+  if [ ! -f /home/ubuntu/backup_script.sh ]; then
+      echo "ERRO: backup_script.sh não foi criado!"
+      exit 1
+  fi
+  
+  if [ ! -f /home/ubuntu/cron_job_config.sh ]; then
+      echo "ERRO: cron_job_config.sh não foi criado!"
+      exit 1
+  fi
+
+  # Ajusta permissões e proprietário
+  chmod +x /home/ubuntu/backup_script.sh
+  chmod +x /home/ubuntu/cron_job_config.sh
+  chown ubuntu:ubuntu /home/ubuntu/backup_script.sh
+  chown ubuntu:ubuntu /home/ubuntu/cron_job_config.sh
+
+  # Executa configuração do cron
+  echo "Configurando cronjob..."
+  bash /home/ubuntu/cron_job_config.sh
+
+  echo "=== Configuração concluída com sucesso! ==="
+  echo "Logs disponíveis em: /var/log/user-data.log"
+  EOF
+
+  tags = {
+    Name = "ec2_privada_B"
+  }
+}
+
+# ========================================
+# S3 BUCKETS - ARMAZENAMENTO
+# ========================================
 
 resource "random_id" "bucket_suffix" {
   byte_length = 4
@@ -241,7 +454,110 @@ resource "aws_s3_bucket_policy" "aej_public_policy" {
 }
 
 # ========================================
-# BUCKETS ETL (Staging -> Trusted -> Cured)
+# S3 BUCKETS - BACKUP DATABASE
+# ========================================
+
+resource "aws_s3_bucket" "aej_db_backup" {
+  bucket = "aej-db-backup-${random_id.bucket_suffix.hex}"
+
+  tags = {
+    Name = "aej-db-backup"
+  }
+}
+
+# ========================================
+# AWS SYSTEMS MANAGER - PARAMETER STORE
+# ========================================
+
+# Variáveis para credenciais do banco de dados
+variable "db_user" {
+  description = "Usuário do banco de dados MySQL"
+  type        = string
+  sensitive   = true
+}
+
+variable "db_password" {
+  description = "Senha do banco de dados MySQL"
+  type        = string
+  sensitive   = true
+}
+
+variable "db_host" {
+  description = "Host/IP do banco de dados MySQL"
+  type        = string
+  sensitive   = true
+}
+
+# Parâmetro: Nome do Banco de Dados
+resource "aws_ssm_parameter" "db_name" {
+  name        = "/aej/database/name"
+  description = "Nome do banco de dados para backup"
+  type        = "String"
+  value       = "aej_hub"
+
+  tags = {
+    Name        = "Database Name"
+    ManagedBy   = "Terraform"
+  }
+}
+
+# Parâmetro: Usuário do Banco de Dados
+resource "aws_ssm_parameter" "db_user" {
+  name        = "/aej/database/user"
+  description = "Usuário do banco de dados"
+  type        = "String"
+  value       = var.db_user
+
+  tags = {
+    Name        = "Database User"
+    ManagedBy   = "Terraform"
+  }
+}
+
+# Parâmetro: Senha do Banco de Dados
+resource "aws_ssm_parameter" "db_password" {
+  name        = "/aej/database/password"
+  description = "Senha do banco de dados (criptografada)"
+  type        = "SecureString"
+  value       = var.db_password
+
+  tags = {
+    Name        = "Database Password"
+    ManagedBy   = "Terraform"
+    Sensitive   = "true"
+  }
+}
+
+# Parâmetro: Host do Banco de Dados
+resource "aws_ssm_parameter" "db_host" {
+  name        = "/aej/database/host"
+  description = "Host/endpoint do banco de dados"
+  type        = "String"
+  value       = var.db_host
+
+  tags = {
+    Name        = "Database Host"
+    Environment = "production"
+    ManagedBy   = "Terraform"
+  }
+}
+
+# Parâmetro: Nome do Bucket S3 para Backup
+resource "aws_ssm_parameter" "backup_bucket" {
+  name        = "/aej/backup/s3-backup-bucket"
+  description = "Nome do bucket S3 para armazenar backups"
+  type        = "String"
+  value       = aws_s3_bucket.aej_db_backup.bucket
+
+  tags = {
+    Name        = "Backup S3 Bucket"
+    Environment = "production"
+    ManagedBy   = "Terraform"
+  }
+}
+
+# ========================================
+# S3 BUCKETS - PIPELINE ETL (Staging -> Trusted -> Cured)
 # ========================================
 
 # Bucket Staging - dados brutos
@@ -277,6 +593,10 @@ resource "aws_s3_bucket" "cured" {
   }
 }
 
+# ========================================
+# SSH KEY PAIR - ACESSO SEGURO ÀS INSTÂNCIAS
+# ========================================
+
 resource "tls_private_key" "ssh_key" {
   algorithm = "RSA"
   rsa_bits  = 4096
@@ -300,6 +620,10 @@ output "ssh_private_key_path" {
   value       = local_file.ssh_private_key.filename
   sensitive   = true
 }
+
+# ========================================
+# LOAD BALANCER - APPLICATION LOAD BALANCER
+# ========================================
 
 # resource "aws_lb" "alb_principal" {
 #   name = "alb-principal"
@@ -346,6 +670,10 @@ output "ssh_private_key_path" {
 #     matcher = "200"
 #   }
 # }
+
+# ========================================
+# LAMBDA FUNCTIONS - PROCESSAMENTO EXCEL
+# ========================================
 
 # Lambda para processamento Excel
 data "archive_file" "excel_processor_zip" {
@@ -433,7 +761,7 @@ resource "aws_lambda_function" "funcao_lambda1" {
 }
 
 # ========================================
-# LAMBDAS ETL (Staging -> Trusted -> Cured)
+# LAMBDA FUNCTIONS - PIPELINE ETL (Staging -> Trusted -> Cured)
 # ========================================
 
 # Arquivos ZIP para os Lambdas ETL
@@ -556,6 +884,10 @@ resource "aws_s3_bucket_notification" "trusted_trigger" {
   depends_on = [aws_lambda_permission.trusted_invoke_lambda]
 }
 
+# ========================================
+# RABBITMQ - MESSAGE BROKER
+# ========================================
+
 resource "aws_security_group" "rabbitmq_sg" {
   name        = "rabbitmq-sg"
   description = "Permite trafego para RabbitMQ e SSH"
@@ -601,7 +933,7 @@ resource "aws_security_group" "rabbitmq_sg" {
 resource "aws_instance" "ec2_publica_rabbitmq" {
   ami                         = "ami-0360c520857e3138f"
   instance_type               = "t3.micro"
-  availability_zone           = "us-east-1b"
+  # availability_zone removido - será inferido da subnet (us-east-1a)
   key_name                    = aws_key_pair.aej_ssh_access.key_name
   subnet_id                   = aws_subnet.subrede_publica.id
   vpc_security_group_ids      = [aws_security_group.rabbitmq_sg.id]
@@ -635,7 +967,10 @@ output "rabbitmq_ui_url" {
   value       = "http://${aws_instance.ec2_publica_rabbitmq.public_ip}:15672"
 }
 
-# Outputs do S3 e Lambda Excel
+# ========================================
+# OUTPUTS - S3 E LAMBDA EXCEL
+# ========================================
+
 output "s3_bucket_name" {
   description = "Nome do bucket S3 público"
   value       = aws_s3_bucket.aej_public.bucket
@@ -667,7 +1002,7 @@ output "excel_processing_instructions" {
 }
 
 # ========================================
-# OUTPUTS DO SISTEMA ETL
+# OUTPUTS - PIPELINE ETL
 # ========================================
 
 output "etl_staging_bucket" {
@@ -1118,5 +1453,63 @@ output "grafana_info" {
     ORDER BY vendas DESC
     LIMIT 10
     EOT
+  }
+}
+
+# ========================================
+# OUTPUTS - NAT GATEWAY
+# ========================================
+
+output "nat_gateway_info" {
+  description = "Informações do NAT Gateway"
+  value = {
+    nat_gateway_id = aws_nat_gateway.nat_gw_aej.id
+    elastic_ip     = aws_eip.nat_eip.public_ip
+    subnet         = aws_subnet.subrede_publica.id
+    
+    observacao = <<-EOT
+    NAT Gateway configurado com sucesso!
+    
+    FUNCIONALIDADE:
+    - Permite que instâncias privadas acessem a internet (apenas saída)
+    - Instâncias privadas NÃO podem receber conexões da internet
+    - Tráfego de saída passa pelo NAT Gateway na subnet pública
+    - IP público fixo: ${aws_eip.nat_eip.public_ip}
+    EOT
+  }
+}
+
+# ========================================
+# OUTPUTS - NETWORKING SUBNETS
+# ========================================
+
+output "subnets_info" {
+  description = "Informações das subnets criadas"
+  value = {
+    publicas = {
+      subnet_1a = {
+        id   = aws_subnet.subrede_publica.id
+        cidr = aws_subnet.subrede_publica.cidr_block
+        az   = aws_subnet.subrede_publica.availability_zone
+      }
+      subnet_1b = {
+        id   = aws_subnet.subrede_publica_2.id
+        cidr = aws_subnet.subrede_publica_2.cidr_block
+        az   = aws_subnet.subrede_publica_2.availability_zone
+      }
+    }
+    privadas = {
+      subnet_1c = {
+        id   = aws_subnet.subrede_privada.id
+        cidr = aws_subnet.subrede_privada.cidr_block
+        az   = aws_subnet.subrede_privada.availability_zone
+      }
+      subnet_1d = {
+        id   = aws_subnet.subrede_privada_2.id
+        cidr = aws_subnet.subrede_privada_2.cidr_block
+        az   = aws_subnet.subrede_privada_2.availability_zone
+      }
+    }
+    observacao = "Load Balancers podem agora usar múltiplas AZs nas subnets públicas (us-east-1a e us-east-1b)"
   }
 }

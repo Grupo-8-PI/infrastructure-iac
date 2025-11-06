@@ -69,19 +69,186 @@ infrastructure-iac/
 - AWS CLI configurado com credenciais válidas
 - Acesso à AWS com permissões adequadas
 
+### 🔐 Configuração de Credenciais do Banco de Dados (IMPORTANTE!)
+
+Este projeto utiliza **AWS Systems Manager Parameter Store** para armazenar credenciais de forma segura. As senhas são criptografadas e **nunca são versionadas no Git**.
+
+#### 📋 Passo a Passo
+
+**1. Criar o arquivo `terraform.tfvars` (NÃO versionado)**
+
+Na pasta `Codigos-IaC/`, crie o arquivo `terraform.tfvars`:
+
+```bash
+cd Codigos-IaC
+nano terraform.tfvars  # ou use seu editor preferido
+```
+
+**2. Adicionar as credenciais do banco de dados**
+
+Coloque o seguinte conteúdo no arquivo:
+
+```hcl
+# ========================================
+# TERRAFORM VARIABLES - VALORES SENSÍVEIS
+# ========================================
+# ⚠️  ATENÇÃO: Este arquivo NÃO deve ser versionado no Git!
+
+# Credenciais do banco de dados MySQL
+# Troque pelos valores reais do seu ambiente
+
+db_user     = "root"                      # Usuário do MySQL
+db_password = "SuaSenhaForteAqui@2024"    # Senha do MySQL
+db_host     = "10.0.0.100"                # IP ou hostname do servidor MySQL
+```
+
+⚠️ **IMPORTANTE**: 
+- Substitua os valores pelos dados **reais** do seu banco MySQL
+- `db_user`: geralmente `root` ou usuário customizado
+- `db_password`: senha forte e segura (mínimo 12 caracteres)
+- `db_host`: IP privado da instância MySQL (ex: `10.0.0.150`) ou hostname
+
+**3. Verificar que o arquivo está protegido**
+
+O arquivo `.gitignore` já está configurado para **não versionar** o `terraform.tfvars`:
+
+```bash
+# Verificar que terraform.tfvars NÃO aparece
+git status
+
+# O arquivo deve estar listado em .gitignore
+cat ../.gitignore | grep tfvars
+```
+
+**4. Como funciona a segurança**
+
+```
+┌─────────────────────────────────────────┐
+│ terraform.tfvars (LOCAL - NÃO VERSION.) │
+│ db_password = "SenhaDoBanco123"         │
+└────────────────┬────────────────────────┘
+                 │ Terraform lê
+                 ↓
+┌─────────────────────────────────────────┐
+│ AWS Parameter Store (CRIPTOGRAFADO)     │
+│ /aej/database/password → SecureString   │
+│ Criptografia: AWS KMS                   │
+└────────────────┬────────────────────────┘
+                 │ EC2 acessa via IAM
+                 ↓
+┌─────────────────────────────────────────┐
+│ EC2 Privada (backup_script.sh)          │
+│ aws ssm get-parameter --with-decryption │
+│ Credenciais nunca aparecem no código!   │
+└─────────────────────────────────────────┘
+```
+
+**5. Todas as credenciais configuradas**
+
+O Parameter Store armazena todas as credenciais de forma segura:
+
+| Parâmetro | Tipo | Origem | Descrição |
+|-----------|------|--------|-----------|
+| `/aej/database/name` | String | Hardcoded | Nome do banco: `aej_hub` |
+| `/aej/database/user` | String | `var.db_user` 🔐 | Usuário MySQL (ex: `root`) |
+| `/aej/database/password` | SecureString | `var.db_password` 🔐 | Senha criptografada com KMS |
+| `/aej/database/host` | String | `var.db_host` 🔐 | IP/hostname do servidor MySQL |
+| `/aej/backup/s3-backup-bucket` | String | Dinâmico | Nome do bucket S3 de backup |
+
+🔐 = **Valor vem do `terraform.tfvars` (não versionado)**
+
+**6. Alterando credenciais após o deploy**
+
+Se precisar alterar **qualquer credencial** depois do `terraform apply`:
+
+```bash
+# Opção 1: Via AWS CLI (alterar senha)
+aws ssm put-parameter \
+  --name "/aej/database/password" \
+  --value "NovaSenhaForte123" \
+  --type "SecureString" \
+  --overwrite \
+  --region us-east-1
+
+# Opção 1b: Alterar usuário
+aws ssm put-parameter \
+  --name "/aej/database/user" \
+  --value "admin_user" \
+  --type "String" \
+  --overwrite \
+  --region us-east-1
+
+# Opção 1c: Alterar host
+aws ssm put-parameter \
+  --name "/aej/database/host" \
+  --value "10.0.0.200" \
+  --type "String" \
+  --overwrite \
+  --region us-east-1
+
+# Opção 2: Editar terraform.tfvars e aplicar novamente (RECOMENDADO)
+nano terraform.tfvars  # Altere db_user, db_password ou db_host
+terraform apply        # Terraform atualiza todos os parâmetros alterados
+```
+
+**7. Verificar credenciais no Parameter Store**
+
+```bash
+# Ver todos os parâmetros (sem mostrar valores)
+aws ssm describe-parameters --region us-east-1
+
+# Ver um parâmetro específico (descriptografado)
+aws ssm get-parameter \
+  --name "/aej/database/password" \
+  --with-decryption \
+  --query 'Parameter.Value' \
+  --output text \
+  --region us-east-1
+```
+
+#### ✅ Checklist de Segurança
+
+Antes de fazer `terraform apply`, confirme:
+
+- ✅ Arquivo `terraform.tfvars` criado com senha forte
+- ✅ Arquivo `terraform.tfvars` **NÃO** aparece em `git status`
+- ✅ `.gitignore` contém `*.tfvars`
+- ✅ Senha usa caracteres especiais, números e letras
+- ✅ Senha tem pelo menos 12 caracteres
+
+#### 🚫 O QUE **NÃO** FAZER
+
+❌ **NUNCA** commite o arquivo `terraform.tfvars` no Git  
+❌ **NUNCA** coloque senhas diretamente no `infra__aej.tf`  
+❌ **NUNCA** compartilhe o `terraform.tfvars` via chat/email  
+❌ **NUNCA** use senhas fracas como `123456` ou `password`  
+
+---
+
 ### Comandos Básicos
 
 1. **Inicializar o Terraform**:
    ```bash
+   cd Codigos-IaC
    terraform init
    ```
 
-2. **Aplicar a infraestrutura**:
+2. **Validar configuração**:
+   ```bash
+   terraform validate
+   ```
+
+3. **Ver o que será criado** (recomendado antes do apply):
+   ```bash
+   terraform plan
+   ```
+
+4. **Aplicar a infraestrutura**:
    ```bash
    terraform apply
    ```
 
-3. **Destruir a infraestrutura**:
+5. **Destruir a infraestrutura**:
    ```bash
    terraform destroy
    ```
