@@ -2,6 +2,20 @@
 
 Este projeto contém uma infraestrutura AWS modularizada usando Terraform, onde cada componente está organizado em sua própria pasta para facilitar a manutenção e reutilização.
 
+## 📑 Índice
+
+- [Estrutura do Projeto](#estrutura-do-projeto)
+- [Recursos Criados](#recursos-criados)
+- [Como Usar](#como-usar)
+  - [🔐 Configuração de Credenciais do Banco de Dados](#-configuração-de-credenciais-do-banco-de-dados-importante)
+  - [📧 Configuração de Notificações de Backup](#-configuração-de-notificações-de-backup-por-email)
+  - [Comandos Básicos](#comandos-básicos)
+- [Sistema de Processamento Excel](#sistema-de-processamento-de-excel-via-lambda-e-s3)
+- [Pipeline ETL](#pipeline-etl-automatizado-staging--trusted--cured)
+- [AWS Glue Data Catalog & Athena](#aws-glue-data-catalog--athena)
+- [Grafana na AWS](#grafana-na-aws-ecs-fargate)
+- [RabbitMQ](#rabbitmq---message-broker)
+
 ## Estrutura do Projeto
 
 ```
@@ -55,12 +69,23 @@ infrastructure-iac/
   - **aej-staging-bucket**: Dados brutos do pipeline ETL
   - **aej-trusted-bucket**: Dados limpos (colunas filtradas)
   - **aej-cured-bucket**: Dados refinados (apenas livros)
+  - **aej-db-backup**: Armazenamento seguro de backups do banco de dados
 
 ### Processamento de Dados
 - **Lambda Functions**:
   - **excel-processor**: Processa arquivos Excel enviados ao S3
   - **staging-to-trusted-etl**: Filtra colunas específicas dos dados brutos
   - **trusted-to-cured-etl**: Filtra apenas registros de livros
+
+### Backup e Monitoramento
+- **Sistema de Backup Automatizado**:
+  - Backup diário do banco de dados MySQL
+  - Armazenamento no S3 (aej-db-backup)
+  - Scripts automatizados via cron
+- **Notificações SNS**:
+  - Emails automáticos sobre status dos backups
+  - Alertas de sucesso e falha
+  - Integração com AWS Simple Notification Service
 
 ## Como Usar
 
@@ -222,6 +247,96 @@ Antes de fazer `terraform apply`, confirme:
 ❌ **NUNCA** coloque senhas diretamente no `infra__aej.tf`  
 ❌ **NUNCA** compartilhe o `terraform.tfvars` via chat/email  
 ❌ **NUNCA** use senhas fracas como `123456` ou `password`  
+
+---
+
+### 📧 Configuração de Notificações de Backup por Email
+
+O sistema envia notificações automáticas por email sobre o status dos backups.
+
+#### 📋 Configuração Rápida
+
+**1. Adicionar seu email no `terraform.tfvars`:**
+
+```hcl
+# Email para receber notificações de backup
+backup_notification_email = "seu-email@sptech.school"
+```
+
+**2. Aplicar infraestrutura:**
+
+```bash
+terraform apply
+```
+
+**3. Confirmar subscrição (OBRIGATÓRIO):**
+
+⚠️ Você receberá um email da AWS com o assunto:
+```
+AWS Notification - Subscription Confirmation
+```
+
+**Você DEVE clicar no link "Confirm subscription"** para começar a receber notificações!
+
+#### 📧 Tipos de Notificações
+
+| Situação | Email | Informações Incluídas |
+|----------|-------|----------------------|
+| ✅ Backup bem-sucedido | Sim | Data/hora, tamanho, localização S3 |
+| ❌ Falha no mysqldump | Sim | Erro, servidor, ação necessária |
+| ❌ Falha no upload S3 | Sim | Erro, permissões, localização local |
+
+#### 📧 Exemplo de Email de Sucesso
+
+```
+Assunto: ✅ Backup do Banco de Dados AEJ - Sucesso
+
+Backup realizado com SUCESSO!
+    
+Data/Hora: 2025-11-06_19-30-00
+Banco de dados: aej_hub
+Servidor: 10.0.0.100
+Tamanho do backup: 45M
+Destino S3: s3://aej-db-backup-xxx/mysql-backups/aej_hub_backup_2025-11-06_19-30-00.sql
+
+Status: ✅ Backup completo e armazenado com segurança no S3.
+```
+
+#### 🧪 Testar Notificações
+
+```bash
+# Conectar na EC2 privada
+ssh ubuntu@<IP_EC2_PRIVADA>
+
+# Executar backup manualmente
+bash /home/ubuntu/backup_script.sh
+
+# Você receberá um email em ~10 segundos! 📧
+```
+
+#### 💰 Custos
+
+- Primeiros 1.000 emails/mês: **GRÁTIS** ✅
+- Emails adicionais: $0.000050 cada
+- **Estimado para backups diários**: < $0.01/mês
+
+#### 🔧 Troubleshooting
+
+**Não está recebendo emails?**
+
+1. Verifique se confirmou a subscrição (procure no spam)
+2. Verifique o status:
+   ```bash
+   terraform output backup_notifications_info
+   ```
+3. Teste manualmente o SNS:
+   ```bash
+   aws sns list-subscriptions-by-topic \
+     --topic-arn $(terraform output -raw sns_topic_arn) \
+     --region us-east-1
+   ```
+
+📚 **Documentação completa**: Consulte `Codigos-IaC/NOTIFICACOES_BACKUP.md`
 
 ---
 
@@ -681,3 +796,118 @@ terraform destroy -auto-approve
 4. **Revise os outputs** do Terraform para ver nomes dos buckets criados
 
 ---
+
+## 🔐 Arquitetura de Segurança
+
+Este projeto implementa **múltiplas camadas de segurança** seguindo as melhores práticas da AWS:
+
+### 🛡️ Segurança de Rede
+
+| Recurso | Configuração | Benefício |
+|---------|-------------|-----------|
+| **VPC Isolada** | 10.0.0.0/24 | Rede privada isolada da internet |
+| **Subnets Públicas** | 2 AZs (us-east-1a, 1b) | Alta disponibilidade |
+| **Subnets Privadas** | 2 AZs (us-east-1c, 1d) | Isolamento completo |
+| **NAT Gateway** | Subnet pública | Internet egress para instâncias privadas |
+| **Security Groups** | Regras específicas | Controle granular de tráfego |
+
+### 🔑 Segurança de Credenciais
+
+```
+┌─────────────────────────────────────┐
+│ terraform.tfvars (LOCAL)            │
+│ ❌ NÃO versionado (.gitignore)      │
+│ ✅ Credenciais fora do Git          │
+└────────────┬────────────────────────┘
+             │ Terraform apply
+             ↓
+┌─────────────────────────────────────┐
+│ AWS Parameter Store                 │
+│ ✅ SecureString (KMS encryption)    │
+│ ✅ Acesso via IAM                   │
+└────────────┬────────────────────────┘
+             │ IAM Instance Profile
+             ↓
+┌─────────────────────────────────────┐
+│ EC2 Privadas                        │
+│ ✅ Sem credenciais hardcoded        │
+│ ✅ Acesso via SSM API               │
+└─────────────────────────────────────┘
+```
+
+### 🎯 Práticas Implementadas
+
+✅ **Zero credenciais hardcoded** - Tudo via Parameter Store  
+✅ **Criptografia em repouso** - SecureString com AWS KMS  
+✅ **Criptografia em trânsito** - HTTPS/TLS para todas APIs  
+✅ **IAM Instance Profile** - Permissões via role, não access keys  
+✅ **Princípio do menor privilégio** - LabRole com permissões necessárias  
+✅ **Segregação de rede** - Instâncias críticas em subnets privadas  
+✅ **Auditoria** - CloudTrail registra todos os acessos  
+✅ **Monitoramento** - CloudWatch Logs para todas as operações  
+
+### 📋 Checklist de Segurança
+
+Antes de fazer deploy em produção:
+
+- [ ] Alterar senhas padrão no `terraform.tfvars`
+- [ ] Usar senhas fortes (mínimo 16 caracteres)
+- [ ] Confirmar subscrição de email SNS para alertas
+- [ ] Revisar Security Groups (regras mínimas necessárias)
+- [ ] Verificar que `terraform.tfvars` está no `.gitignore`
+- [ ] Habilitar MFA na conta AWS
+- [ ] Configurar backup rotation no S3 (lifecycle policies)
+- [ ] Revisar IAM permissions do LabRole
+
+### 🚨 Alertas e Monitoramento
+
+| Sistema | Função | Status |
+|---------|--------|--------|
+| **SNS Email** | Notificações de backup | ✅ Implementado |
+| **CloudWatch Logs** | Logs de Lambda/ECS/EC2 | ✅ Implementado |
+| **S3 Versioning** | Proteção contra deleção | ⚠️ Configurar manualmente |
+| **CloudTrail** | Auditoria de API calls | ✅ Ativo (AWS default) |
+
+### 📚 Documentação de Segurança
+
+- `NOTIFICACOES_BACKUP.md` - Sistema de alertas via SNS
+- `.gitignore` - Arquivos protegidos contra versionamento
+- `backup_script.sh` - Script seguro sem credenciais
+
+---
+
+## 🤝 Contribuindo
+
+Para contribuir com este projeto:
+
+1. **Nunca commite credenciais** - Sempre use `terraform.tfvars` (gitignored)
+2. **Teste localmente** - Execute `terraform plan` antes de `apply`
+3. **Documente mudanças** - Atualize este README
+4. **Siga padrões** - Use nomenclatura consistente de recursos
+5. **Valide segurança** - Revise permissões antes de merge
+
+---
+
+## 📞 Suporte
+
+**Documentação adicional:**
+- `Codigos-IaC/NOTIFICACOES_BACKUP.md` - Guia completo de notificações
+- `Codigos-IaC/GRAFANA_SETUP.md` - Configuração do Grafana
+- `Codigos-IaC/INSTRUCOES_POS_MOCK.md` - Instruções pós-deploy
+
+**Arquivos importantes:**
+- `terraform.tfvars` - **NÃO VERSIONAR** - Credenciais sensíveis
+- `.gitignore` - Proteção de arquivos sensíveis
+- `backup_script.sh` - Script de backup com Parameter Store
+- `cron_job_config.sh` - Configuração de backups automáticos
+
+---
+
+## 📄 Licença
+
+Este projeto é parte do trabalho acadêmico do **Grupo 8** da São Paulo Tech School.
+
+---
+
+**Última atualização**: Novembro 2025  
+**Versão**: 2.0 - Com segurança aprimorada e notificações

@@ -557,6 +557,50 @@ resource "aws_ssm_parameter" "backup_bucket" {
 }
 
 # ========================================
+# SNS - NOTIFICAÇÕES DE BACKUP
+# ========================================
+
+# Variável para email de notificação
+variable "backup_notification_email" {
+  description = "Email para receber notificações de backup"
+  type        = string
+  default     = "felipeadelungue.gasparotto@gmail.com"
+}
+
+# SNS Topic para notificações de backup
+resource "aws_sns_topic" "backup_notifications" {
+  name         = "aej-db-backup-notifications"
+  display_name = "AEJ Database Backup Notifications"
+
+  tags = {
+    Name        = "Backup Notifications"
+    Environment = "production"
+    ManagedBy   = "Terraform"
+  }
+}
+
+# Subscrição de email no SNS Topic
+resource "aws_sns_topic_subscription" "backup_email" {
+  topic_arn = aws_sns_topic.backup_notifications.arn
+  protocol  = "email"
+  endpoint  = var.backup_notification_email
+}
+
+# Parâmetro: ARN do SNS Topic para notificações
+resource "aws_ssm_parameter" "backup_sns_topic" {
+  name        = "/aej/backup/sns-topic-arn"
+  description = "ARN do SNS Topic para notificações de backup"
+  type        = "String"
+  value       = aws_sns_topic.backup_notifications.arn
+
+  tags = {
+    Name        = "Backup SNS Topic ARN"
+    Environment = "production"
+    ManagedBy   = "Terraform"
+  }
+}
+
+# ========================================
 # S3 BUCKETS - PIPELINE ETL (Staging -> Trusted -> Cured)
 # ========================================
 
@@ -1511,5 +1555,64 @@ output "subnets_info" {
       }
     }
     observacao = "Load Balancers podem agora usar múltiplas AZs nas subnets públicas (us-east-1a e us-east-1b)"
+  }
+}
+
+# ========================================
+# OUTPUTS - NOTIFICAÇÕES DE BACKUP
+# ========================================
+
+output "backup_notifications_info" {
+  description = "Informações sobre notificações de backup"
+  value = {
+    sns_topic_arn = aws_sns_topic.backup_notifications.arn
+    sns_topic_name = aws_sns_topic.backup_notifications.name
+    notification_email = var.backup_notification_email
+    
+    instructions = <<-EOT
+    
+    ========================================
+    NOTIFICAÇÕES DE BACKUP - INSTRUÇÕES
+    ========================================
+    
+    1. CONFIRMAR SUBSCRIÇÃO (OBRIGATÓRIO):
+       - Verifique seu email: ${var.backup_notification_email}
+       - Procure email da AWS: "AWS Notification - Subscription Confirmation"
+       - Clique no link de confirmação
+       - ⚠️ Sem confirmação, você NÃO receberá emails!
+    
+    2. TIPOS DE NOTIFICAÇÃO:
+       ✅ Backup bem-sucedido (com tamanho e localização S3)
+       ❌ Falha no dump do banco
+       ❌ Falha no upload para S3
+    
+    3. TESTAR NOTIFICAÇÕES:
+       # Conectar na EC2 privada
+       ssh ubuntu@<IP_EC2_PRIVADA>
+       
+       # Executar backup manualmente
+       bash /home/ubuntu/backup_script.sh
+       
+       # Você deve receber email em ~10 segundos
+    
+    4. VERIFICAR STATUS DA SUBSCRIÇÃO:
+       aws sns list-subscriptions-by-topic \
+         --topic-arn ${aws_sns_topic.backup_notifications.arn} \
+         --region us-east-1
+    
+    5. ALTERAR EMAIL:
+       - Edite terraform.tfvars: backup_notification_email = "novo@email.com"
+       - Execute: terraform apply
+       - Confirme nova subscrição no email
+    
+    6. CUSTOS:
+       - Primeiros 1.000 emails/mês: GRÁTIS
+       - Emails adicionais: $0.000050 cada
+       - Estimado: < $0.01/mês
+    
+    📧 Email configurado: ${var.backup_notification_email}
+    📍 SNS Topic: ${aws_sns_topic.backup_notifications.name}
+    
+    EOT
   }
 }
