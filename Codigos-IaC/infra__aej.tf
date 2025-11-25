@@ -299,6 +299,11 @@ resource "aws_instance" "ec2_privada" {
   ${file("backup_script.sh")}
   SCRIPT_DB
 
+  echo "Criando docker-and-compose.sh..."
+  cat <<'SCRIPT_DB' > /home/ubuntu/docker-and-compose.sh
+  ${file("docker-and-compose.sh")}
+  SCRIPT_DB
+
   echo "Criando cron_job_config.sh..."
   cat <<'SCRIPT_CRON' > /home/ubuntu/cron_job_config.sh
   ${file("cron_job_config.sh")}
@@ -315,15 +320,26 @@ resource "aws_instance" "ec2_privada" {
       exit 1
   fi
 
+  if [ ! -f /home/ubuntu/docker-and-compose.sh ]; then
+      echo "ERRO: docker-and-compose.sh não foi criado!"
+      exit 1
+  fi
+
   # Ajusta permissões e proprietário
   chmod +x /home/ubuntu/backup_script.sh
   chmod +x /home/ubuntu/cron_job_config.sh
+  chmod +x /home/ubuntu/docker-and-compose.sh
   chown ubuntu:ubuntu /home/ubuntu/backup_script.sh
   chown ubuntu:ubuntu /home/ubuntu/cron_job_config.sh
+  chown ubuntu:ubuntu /home/ubuntu/docker-and-compose.sh
+
 
   # Executa configuração do cron
   echo "Configurando cronjob..."
   bash /home/ubuntu/cron_job_config.sh
+
+  # Executa docker
+  bash /home/ubuntu/docker-and-compose.sh
 
   echo "=== Configuração concluída com sucesso! ==="
   echo "Logs disponíveis em: /var/log/user-data.log"
@@ -350,7 +366,7 @@ resource "aws_instance" "ec2_privada_B" {
   exec > >(tee /var/log/user-data.log)
   exec 2>&1
   
-  echo "=== Iniciando configuração da EC2 Privada B ==="
+  echo "=== Iniciando configuração da EC2 Privada ==="
   echo "Data/Hora: $(date)"
   
   # Aguarda inicialização completa do sistema
@@ -360,6 +376,11 @@ resource "aws_instance" "ec2_privada_B" {
   echo "Criando backup_script.sh..."
   cat <<'SCRIPT_DB' > /home/ubuntu/backup_script.sh
   ${file("backup_script.sh")}
+  SCRIPT_DB
+
+  echo "Criando docker-and-compose.sh..."
+  cat <<'SCRIPT_DB' > /home/ubuntu/docker-and-compose.sh
+  ${file("docker-and-compose.sh")}
   SCRIPT_DB
 
   echo "Criando cron_job_config.sh..."
@@ -378,15 +399,26 @@ resource "aws_instance" "ec2_privada_B" {
       exit 1
   fi
 
+  if [ ! -f /home/ubuntu/docker-and-compose.sh ]; then
+      echo "ERRO: docker-and-compose.sh não foi criado!"
+      exit 1
+  fi
+
   # Ajusta permissões e proprietário
   chmod +x /home/ubuntu/backup_script.sh
   chmod +x /home/ubuntu/cron_job_config.sh
+  chmod +x /home/ubuntu/docker-and-compose.sh
   chown ubuntu:ubuntu /home/ubuntu/backup_script.sh
   chown ubuntu:ubuntu /home/ubuntu/cron_job_config.sh
+  chown ubuntu:ubuntu /home/ubuntu/docker-and-compose.sh
+
 
   # Executa configuração do cron
   echo "Configurando cronjob..."
   bash /home/ubuntu/cron_job_config.sh
+
+  # Executa docker
+  bash /home/ubuntu/docker-and-compose.sh
 
   echo "=== Configuração concluída com sucesso! ==="
   echo "Logs disponíveis em: /var/log/user-data.log"
@@ -926,89 +958,6 @@ resource "aws_s3_bucket_notification" "trusted_trigger" {
   }
 
   depends_on = [aws_lambda_permission.trusted_invoke_lambda]
-}
-
-# ========================================
-# RABBITMQ - MESSAGE BROKER
-# ========================================
-
-resource "aws_security_group" "rabbitmq_sg" {
-  name        = "rabbitmq-sg"
-  description = "Permite trafego para RabbitMQ e SSH"
-  vpc_id      = aws_vpc.vpc_aej.id
-
-  ingress {
-    description = "SSH access"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    description = "RabbitMQ AMQP"
-    from_port   = 5672
-    to_port     = 5672
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    description = "RabbitMQ UI"
-    from_port   = 15672
-    to_port     = 15672
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "SG RabbitMQ"
-  }
-}
-
-
-resource "aws_instance" "ec2_publica_rabbitmq" {
-  ami                         = "ami-0360c520857e3138f"
-  instance_type               = "t3.micro"
-  # availability_zone removido - será inferido da subnet (us-east-1a)
-  key_name                    = aws_key_pair.aej_ssh_access.key_name
-  subnet_id                   = aws_subnet.subrede_publica.id
-  vpc_security_group_ids      = [aws_security_group.rabbitmq_sg.id]
-  associate_public_ip_address = true
-
-  user_data = file("rabbit_mq_ubuntu.sh")
-
-  connection {
-    type        = "ssh"
-    user        = "ubuntu"
-    host        = self.public_ip
-    private_key = tls_private_key.ssh_key.private_key_pem
-    timeout     = "5m"
-  }
-
-  provisioner "file" {
-    source      = "compose.yml"
-    destination = "/home/ubuntu/compose.yml"
-  }
-
-  depends_on = [aws_key_pair.aej_ssh_access]
-}
-
-output "rabbitmq_instance_public_ip" {
-  description = "Endereço IP público da instância RabbitMQ"
-  value       = aws_instance.ec2_publica_rabbitmq.public_ip
-}
-
-output "rabbitmq_ui_url" {
-  description = "URL de acesso à interface de gerenciamento do RabbitMQ"
-  value       = "http://${aws_instance.ec2_publica_rabbitmq.public_ip}:15672"
 }
 
 # ========================================
