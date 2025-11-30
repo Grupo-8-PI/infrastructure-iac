@@ -99,6 +99,8 @@ locals {
     "redis-server"
   ]
 
+  docker_install_script = file("${path.module}/docker-and-compose.sh")
+
   private_user_data = <<-EOT
 #!/bin/bash
 set -euxo pipefail
@@ -108,9 +110,14 @@ apt-get install -y ${join(" ", local.private_packages)}
 systemctl enable mysql || true
 systemctl enable rabbitmq-server || true
 systemctl enable redis-server || true
+cat <<'DOCKER_SCRIPT' >/usr/local/bin/docker-and-compose.sh
+${local.docker_install_script}
+DOCKER_SCRIPT
+chmod +x /usr/local/bin/docker-and-compose.sh
+/usr/local/bin/docker-and-compose.sh
 pip3 install --upgrade pip || true
 cat <<'MSG' > /etc/motd
-${local.project_name}: serviços Java/MySQL, RabbitMQ, Python e Redis hospedados na mesma instância.
+${local.project_name}: serviços Java/MySQL, RabbitMQ, Python e hospedados na mesma instância.
 MSG
 EOT
 }
@@ -158,6 +165,25 @@ resource "aws_internet_gateway" "igw_aej" {
   })
 }
 
+resource "aws_eip" "nat" {
+  domain = "vpc"
+
+  tags = merge(local.common_tags, {
+    Name = "${local.project_name}-nat-eip"
+  })
+}
+
+resource "aws_nat_gateway" "nat" {
+  allocation_id = aws_eip.nat.id
+  subnet_id     = aws_subnet.subrede_publica.id
+
+  tags = merge(local.common_tags, {
+    Name = "${local.project_name}-nat-gw"
+  })
+
+  depends_on = [aws_internet_gateway.igw_aej]
+}
+
 resource "aws_route_table" "route_table_publica" {
   vpc_id = aws_vpc.vpc_aej.id
 
@@ -178,6 +204,11 @@ resource "aws_route_table_association" "associacao_subrede_publica" {
 
 resource "aws_route_table" "rt_aej" {
   vpc_id = aws_vpc.vpc_aej.id
+
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.nat.id
+  }
 
   tags = merge(local.common_tags, {
     Name = "${local.project_name}-rtb-private"
@@ -208,8 +239,8 @@ resource "aws_security_group" "sg_publica" {
 
   ingress {
     description = "HTTP"
-    from_port   = 80
-    to_port     = 80
+    from_port   = 5173
+    to_port     = 5173
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -275,7 +306,7 @@ resource "aws_key_pair" "aej_ssh_access" {
 
 resource "local_file" "ssh_private_key" {
   content              = tls_private_key.ssh_key.private_key_pem
-  filename             = "${path.root}/../${local.project_name}.pem"
+  filename             = "${path.root}/../${local.project_name}-key.pem"
   file_permission      = "0600"
   directory_permission = "0700"
 }
@@ -305,7 +336,7 @@ resource "aws_instance" "ec2_publica_a" {
   user_data                   = local.common_user_data
 
   tags = merge(local.common_tags, {
-    Name = "${local.project_name}-frontend-a"
+    Name  = "${local.project_name}-frontend-a"
     Layer = "frontend"
   })
 }
@@ -320,7 +351,7 @@ resource "aws_instance" "ec2_publica_b" {
   user_data                   = local.common_user_data
 
   tags = merge(local.common_tags, {
-    Name = "${local.project_name}-frontend-b"
+    Name  = "${local.project_name}-frontend-b"
     Layer = "frontend"
   })
 }
@@ -332,11 +363,33 @@ resource "aws_instance" "ec2_privada" {
   vpc_security_group_ids = [aws_security_group.sg_privada.id]
   key_name               = aws_key_pair.aej_ssh_access.key_name
   user_data              = local.private_user_data
+  depends_on             = [aws_nat_gateway.nat]
+
+  root_block_device {
+    volume_size = 10   
+    volume_type = "gp3"
+    delete_on_termination = true
+  }
 
   tags = merge(local.common_tags, {
     Name  = "${local.project_name}-servicos-privados"
     Layer = "private-services"
     Role  = "java-mysql-rabbitmq-python-redis"
+  })
+}
+
+resource "aws_instance" "redis" {
+  ami                    = var.ami_id
+  instance_type          = "t3.small"
+  subnet_id              = aws_subnet.subrede_privada.id
+  vpc_security_group_ids = [aws_security_group.sg_privada.id]
+  key_name               = aws_key_pair.aej_ssh_access.key_name
+  user_data              = file("${path.module}/scripts/install_redis.sh")
+
+  tags = merge(local.common_tags, {
+    Name  = "${local.project_name}-redis"
+    Layer = "private-services"
+    Role  = "redis"
   })
 }
 
@@ -482,7 +535,7 @@ resource "aws_s3_bucket" "staging" {
   force_destroy = true
 
   tags = merge(local.common_tags, {
-    Name = "aej-staging"
+    Name        = "aej-staging"
     Environment = "ETL"
   })
 }
@@ -492,7 +545,7 @@ resource "aws_s3_bucket" "trusted" {
   force_destroy = true
 
   tags = merge(local.common_tags, {
-    Name = "aej-trusted"
+    Name        = "aej-trusted"
     Environment = "ETL"
   })
 }
@@ -502,7 +555,7 @@ resource "aws_s3_bucket" "cured" {
   force_destroy = true
 
   tags = merge(local.common_tags, {
-    Name = "aej-cured"
+    Name        = "aej-cured"
     Environment = "ETL"
   })
 }
@@ -627,8 +680,8 @@ output "ssh_private_key_path" {
 output "network" {
   description = "IDs principais da malha de rede"
   value = {
-    vpc_id        = aws_vpc.vpc_aej.id
-    public_subnet = aws_subnet.subrede_publica.id
+    vpc_id         = aws_vpc.vpc_aej.id
+    public_subnet  = aws_subnet.subrede_publica.id
     private_subnet = aws_subnet.subrede_privada.id
   }
 }
@@ -643,7 +696,12 @@ output "frontend_public_ips" {
 
 output "backend_private_ips" {
   description = "IPs privados usados para tráfego interno"
-  value = aws_instance.ec2_privada.private_ip
+  value       = aws_instance.ec2_privada.private_ip
+}
+
+output "redis_private_ip" {
+  description = "IP privado da instância Redis"
+  value       = aws_instance.redis.private_ip
 }
 
 output "sns_topic_arn" {
@@ -654,7 +712,7 @@ output "sns_topic_arn" {
 output "react_site" {
   description = "Bucket e endpoint usados para hospedar o frontend React"
   value = {
-    bucket_name     = aws_s3_bucket.react_app.bucket
+    bucket_name      = aws_s3_bucket.react_app.bucket
     website_endpoint = aws_s3_bucket_website_configuration.react_app.website_endpoint
   }
 }
