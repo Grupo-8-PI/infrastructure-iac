@@ -100,6 +100,7 @@ locals {
   ]
 
   docker_install_script = file("${path.module}/docker-and-compose.sh")
+  nginx_install_script  = file("${path.module}/scripts/install_nginx.sh")
 
   private_user_data = <<-EOT
 #!/bin/bash
@@ -115,6 +116,8 @@ ${local.docker_install_script}
 DOCKER_SCRIPT
 chmod +x /usr/local/bin/docker-and-compose.sh
 /usr/local/bin/docker-and-compose.sh
+docker --version || true
+docker compose version || true
 pip3 install --upgrade pip || true
 cat <<'MSG' > /etc/motd
 ${local.project_name}: serviços Java/MySQL, RabbitMQ, Python e hospedados na mesma instância.
@@ -300,13 +303,13 @@ resource "tls_private_key" "ssh_key" {
 }
 
 resource "aws_key_pair" "aej_ssh_access" {
-  key_name   = "${local.project_name}-key"
+  key_name   = "aej-slim-key"
   public_key = tls_private_key.ssh_key.public_key_openssh
 }
 
 resource "local_file" "ssh_private_key" {
   content              = tls_private_key.ssh_key.private_key_pem
-  filename             = "${path.root}/../${local.project_name}-key.pem"
+  filename             = "${path.root}/../aej-slim-key.pem"
   file_permission      = "0600"
   directory_permission = "0700"
 }
@@ -319,10 +322,11 @@ locals {
   common_user_data = <<-EOT
 #!/bin/bash
 set -euxo pipefail
-apt-get update -y
-apt-get install -y nginx
-systemctl enable nginx
-echo "${local.project_name} $(hostname)" > /var/www/html/index.html
+cat <<'INSTALL_NGINX' >/usr/local/bin/install-nginx.sh
+${local.nginx_install_script}
+INSTALL_NGINX
+chmod +x /usr/local/bin/install-nginx.sh
+/usr/local/bin/install-nginx.sh
 EOT
 }
 
