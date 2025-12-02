@@ -90,15 +90,6 @@ locals {
 }
 
 locals {
-  private_packages = [
-    "default-jdk",
-    "mysql-server",
-    "rabbitmq-server",
-    "python3",
-    "python3-pip",
-    "redis-server"
-  ]
-
   docker_install_script = file("${path.module}/docker-and-compose.sh")
   nginx_install_script  = file("${path.module}/scripts/install_nginx.sh")
 
@@ -107,7 +98,6 @@ locals {
 set -euxo pipefail
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get install -y ${join(" ", local.private_packages)}
 systemctl enable mysql || true
 systemctl enable rabbitmq-server || true
 systemctl enable redis-server || true
