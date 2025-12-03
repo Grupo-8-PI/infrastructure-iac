@@ -357,7 +357,10 @@ resource "aws_instance" "ec2_privada" {
   vpc_security_group_ids = [aws_security_group.sg_privada.id]
   key_name               = aws_key_pair.aej_ssh_access.key_name
   user_data              = local.private_user_data
-  depends_on             = [aws_nat_gateway.nat]
+  depends_on = [
+    aws_nat_gateway.nat,
+    aws_route_table_association.associacao_subrede_privada,
+  ]
 
   root_block_device {
     volume_size = 10   
@@ -379,6 +382,10 @@ resource "aws_instance" "redis" {
   vpc_security_group_ids = [aws_security_group.sg_privada.id]
   key_name               = aws_key_pair.aej_ssh_access.key_name
   user_data              = file("${path.module}/scripts/install_redis.sh")
+  depends_on = [
+    aws_nat_gateway.nat,
+    aws_route_table_association.associacao_subrede_privada,
+  ]
 
   tags = merge(local.common_tags, {
     Name  = "${local.project_name}-redis"
