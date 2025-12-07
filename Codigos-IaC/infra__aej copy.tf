@@ -312,11 +312,13 @@ locals {
   common_user_data = <<-EOT
 #!/bin/bash
 set -euxo pipefail
-cat <<'INSTALL_NGINX' >/usr/local/bin/install-nginx.sh
-${local.nginx_install_script}
-INSTALL_NGINX
-chmod +x /usr/local/bin/install-nginx.sh
-/usr/local/bin/install-nginx.sh
+cat <<'DOCKER_SCRIPT' >/usr/local/bin/docker-and-compose.sh
+${local.docker_install_script}
+DOCKER_SCRIPT
+chmod +x /usr/local/bin/docker-and-compose.sh
+/usr/local/bin/docker-and-compose.sh
+docker --version || true
+docker compose version || true
 EOT
 }
 
