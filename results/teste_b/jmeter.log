@@ -1,0 +1,31 @@
+2025-12-08 18:32:23,377 INFO o.a.j.u.JMeterUtils: Setting Locale to en_EN
+2025-12-08 18:32:23,397 INFO o.a.j.JMeter: Loading user properties from: C:\Users\leode\Downloads\apache-jmeter-5.6.3\apache-jmeter-5.6.3\bin\user.properties
+2025-12-08 18:32:23,398 INFO o.a.j.JMeter: Loading system properties from: C:\Users\leode\Downloads\apache-jmeter-5.6.3\apache-jmeter-5.6.3\bin\system.properties
+2025-12-08 18:32:23,406 INFO o.a.j.JMeter: Copyright (c) 1998-2024 The Apache Software Foundation
+2025-12-08 18:32:23,407 INFO o.a.j.JMeter: Version 5.6.3
+2025-12-08 18:32:23,407 INFO o.a.j.JMeter: java.version=17.0.17
+2025-12-08 18:32:23,407 INFO o.a.j.JMeter: java.vm.name=OpenJDK 64-Bit Server VM
+2025-12-08 18:32:23,407 INFO o.a.j.JMeter: os.name=Windows 11
+2025-12-08 18:32:23,407 INFO o.a.j.JMeter: os.arch=amd64
+2025-12-08 18:32:23,407 INFO o.a.j.JMeter: os.version=10.0
+2025-12-08 18:32:23,407 INFO o.a.j.JMeter: file.encoding=Cp1252
+2025-12-08 18:32:23,407 INFO o.a.j.JMeter: java.awt.headless=true
+2025-12-08 18:32:23,407 INFO o.a.j.JMeter: Max memory     =1073741824
+2025-12-08 18:32:23,408 INFO o.a.j.JMeter: Available Processors =12
+2025-12-08 18:32:23,417 INFO o.a.j.JMeter: Default Locale=English (EN)
+2025-12-08 18:32:23,417 INFO o.a.j.JMeter: JMeter  Locale=English (EN)
+2025-12-08 18:32:23,417 INFO o.a.j.JMeter: JMeterHome=C:\Users\leode\Downloads\apache-jmeter-5.6.3\apache-jmeter-5.6.3
+2025-12-08 18:32:23,417 INFO o.a.j.JMeter: user.dir  =C:\Users\leode\Downloads\infrastructure-iac
+2025-12-08 18:32:23,418 INFO o.a.j.JMeter: PWD       =C:\Users\leode\Downloads\infrastructure-iac
+2025-12-08 18:32:28,543 INFO o.a.j.JMeter: IP: 26.85.39.255 Name: Leonardo FullName: Leonardo
+2025-12-08 18:32:28,554 INFO o.a.j.JMeter: Setting property 'jmeter.reportgenerator.outputdir' to:'C:\Users\leode\Downloads\infrastructure-iac\results\teste_b\dashboard'
+2025-12-08 18:32:28,554 ERROR o.a.j.JMeter: An error occurred: 
+org.apache.jmeter.report.config.ConfigurationException: The file C:\Users\leode\Downloads\infrastructure-iac\teste_b_get_endpoints.jmx doesn't exist or can't be opened
+	at org.apache.jmeter.JMeter.runNonGui(JMeter.java:950) ~[ApacheJMeter_core.jar:5.6.3]
+	at org.apache.jmeter.JMeter.startNonGui(JMeter.java:940) ~[ApacheJMeter_core.jar:5.6.3]
+	at org.apache.jmeter.JMeter.start(JMeter.java:508) [ApacheJMeter_core.jar:5.6.3]
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method) ~[?:?]
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77) ~[?:?]
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43) ~[?:?]
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569) ~[?:?]
+	at org.apache.jmeter.NewDriver.main(NewDriver.java:259) [ApacheJMeter.jar:5.6.3]

@@ -51,24 +51,6 @@ variable "ami_id" {
   default     = "ami-0e86e20dae9224db8"
 }
 
-variable "db_user" {
-  description = "Usuário do banco de dados MySQL"
-  type        = string
-  sensitive   = true
-}
-
-variable "db_password" {
-  description = "Senha do banco de dados MySQL"
-  type        = string
-  sensitive   = true
-}
-
-variable "db_host" {
-  description = "Host/IP do banco de dados MySQL"
-  type        = string
-  sensitive   = true
-}
-
 variable "backup_notification_email" {
   description = "Email para receber notificações de backup"
   type        = string
@@ -577,56 +559,6 @@ resource "aws_s3_bucket" "athena_results" {
 # Parameter Store e SNS de backup
 ########################################
 
-resource "aws_ssm_parameter" "db_name" {
-  name        = "/aej/database/name"
-  description = "Nome do banco de dados para backup"
-  type        = "String"
-  value       = "aej_hub"
-
-  tags = {
-    Name      = "Database Name"
-    ManagedBy = "Terraform"
-  }
-}
-
-resource "aws_ssm_parameter" "db_user" {
-  name        = "/aej/database/user"
-  description = "Usuário do banco de dados"
-  type        = "String"
-  value       = var.db_user
-
-  tags = {
-    Name      = "Database User"
-    ManagedBy = "Terraform"
-  }
-}
-
-resource "aws_ssm_parameter" "db_password" {
-  name        = "/aej/database/password"
-  description = "Senha do banco de dados"
-  type        = "SecureString"
-  value       = var.db_password
-
-  tags = {
-    Name      = "Database Password"
-    ManagedBy = "Terraform"
-    Sensitive = "true"
-  }
-}
-
-resource "aws_ssm_parameter" "db_host" {
-  name        = "/aej/database/host"
-  description = "Host/endpoint do banco de dados"
-  type        = "String"
-  value       = var.db_host
-
-  tags = {
-    Name        = "Database Host"
-    Environment = "production"
-    ManagedBy   = "Terraform"
-  }
-}
-
 resource "aws_ssm_parameter" "backup_bucket" {
   name        = "/aej/backup/s3-backup-bucket"
   description = "Nome do bucket S3 para armazenar backups"
@@ -925,4 +857,341 @@ resource "aws_s3_bucket_notification" "trusted_trigger" {
   }
 
   depends_on = [aws_lambda_permission.trusted_invoke_lambda]
+}
+
+########################################
+# AWS Glue Data Catalog & Athena
+########################################
+
+resource "aws_glue_catalog_database" "livros_analytics" {
+  name        = "livros_analytics_db"
+  description = "Database para análise de vendas de livros - Pipeline ETL"
+}
+
+resource "aws_athena_workgroup" "livros_workgroup" {
+  name          = "livros_analytics_workgroup"
+  force_destroy = true
+
+  configuration {
+    enforce_workgroup_configuration    = true
+    publish_cloudwatch_metrics_enabled = true
+
+    result_configuration {
+      output_location = "s3://${aws_s3_bucket.athena_results.bucket}/query-results/"
+
+      encryption_configuration {
+        encryption_option = "SSE_S3"
+      }
+    }
+  }
+
+  tags = merge(local.common_tags, {
+    Name = "Livros Analytics Workgroup"
+  })
+}
+
+resource "aws_glue_catalog_table" "cured_livros_table" {
+  name          = "vendas_livros"
+  database_name = aws_glue_catalog_database.livros_analytics.name
+  description   = "Tabela final com apenas vendas de livros (cured bucket)"
+  table_type    = "EXTERNAL_TABLE"
+
+  parameters = {
+    "classification"         = "csv"
+    "delimiter"              = ","
+    "skip.header.line.count" = "1"
+  }
+
+  storage_descriptor {
+    location      = "s3://${aws_s3_bucket.cured.bucket}/cured/"
+    input_format  = "org.apache.hadoop.mapred.TextInputFormat"
+    output_format = "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat"
+
+    ser_de_info {
+      serialization_library = "org.apache.hadoop.hive.serde2.OpenCSVSerde"
+      parameters = {
+        "separatorChar"          = ","
+        "quoteChar"              = "\""
+        "escapeChar"             = "\\"
+        "skip.header.line.count" = "1"
+      }
+    }
+
+    columns {
+      name    = "Data"
+      type    = "string"
+      comment = "Data e hora da compra"
+    }
+
+    columns {
+      name    = "Dia_da_Semana"
+      type    = "string"
+      comment = "Dia da semana calculado"
+    }
+
+    columns {
+      name    = "product_category_name"
+      type    = "string"
+      comment = "Categoria do produto (livros)"
+    }
+
+    columns {
+      name    = "seller_city"
+      type    = "string"
+      comment = "Cidade do vendedor"
+    }
+
+    columns {
+      name    = "seller_state"
+      type    = "string"
+      comment = "Estado do vendedor"
+    }
+
+    columns {
+      name    = "Quantidade"
+      type    = "double"
+      comment = "Quantidade vendida"
+    }
+
+    columns {
+      name    = "Obra_Vendida"
+      type    = "string"
+      comment = "Nome da obra/livro vendido"
+    }
+
+    columns {
+      name    = "Valor_Pago"
+      type    = "string"
+      comment = "Valor pago formatado"
+    }
+
+    columns {
+      name    = "Forma_de_Pagamento"
+      type    = "string"
+      comment = "Método de pagamento utilizado"
+    }
+  }
+}
+
+########################################
+# Outputs - Athena
+########################################
+
+output "athena_info" {
+  description = "Informações do Athena para análise de dados"
+  value = {
+    database_name         = aws_glue_catalog_database.livros_analytics.name
+    table_name            = aws_glue_catalog_table.cured_livros_table.name
+    workgroup_name        = aws_athena_workgroup.livros_workgroup.name
+    athena_results_bucket = aws_s3_bucket.athena_results.bucket
+  }
+}
+
+# ====================================
+# GRAFANA NA AWS (ECS FARGATE)
+# ====================================
+
+# Security Group para Grafana
+resource "aws_security_group" "sg_grafana" {
+  name        = "sg_grafana_aej"
+  description = "Permite acesso HTTP ao Grafana na porta 3000"
+  vpc_id      = aws_vpc.vpc_aej.id
+
+  # Acesso HTTP ao Grafana
+  ingress {
+    description = "Grafana UI"
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # HTTPS opcional
+  ingress {
+    description = "HTTPS"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # Outbound
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "SG Grafana AEJ"
+  }
+}
+
+# ECS Cluster para Grafana
+resource "aws_ecs_cluster" "cluster_grafana_aej" {
+  name = "grafana-livros-cluster"
+
+  setting {
+    name  = "containerInsights"
+    value = "enabled"
+  }
+
+  tags = {
+    Name = "Cluster Grafana AEJ"
+  }
+}
+
+# CloudWatch Log Group para Grafana
+resource "aws_cloudwatch_log_group" "grafana_logs" {
+  name              = "/ecs/grafana-livros-aej"
+  retention_in_days = 7
+
+  tags = {
+    Name = "Grafana Logs AEJ"
+  }
+}
+
+# ECS Task Definition para Grafana
+resource "aws_ecs_task_definition" "grafana_task_aej" {
+  family                   = "grafana-livros-aej"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = "512"
+  memory                   = "1024"
+  execution_role_arn       = data.aws_iam_role.lab_role.arn
+  task_role_arn            = data.aws_iam_role.lab_role.arn
+
+  container_definitions = jsonencode([
+    {
+      name  = "grafana"
+      image = "grafana/grafana:latest"
+      
+      portMappings = [
+        {
+          containerPort = 3000
+          hostPort      = 3000
+          protocol      = "tcp"
+        }
+      ]
+
+      environment = [
+        {
+          name  = "GF_SECURITY_ADMIN_USER"
+          value = "admin"
+        },
+        {
+          name  = "GF_SECURITY_ADMIN_PASSWORD"
+          value = "aej2025grafana"
+        },
+        {
+          name  = "GF_INSTALL_PLUGINS"
+          value = "grafana-athena-datasource"
+        },
+        {
+          name  = "AWS_DEFAULT_REGION"
+          value = "us-east-1"
+        },
+        {
+          name  = "GF_SERVER_ROOT_URL"
+          value = "http://localhost:3000"
+        }
+      ]
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = "/ecs/grafana-livros-aej"
+          "awslogs-region"        = "us-east-1"
+          "awslogs-stream-prefix" = "ecs"
+        }
+      }
+
+      essential = true
+    }
+  ])
+
+  tags = {
+    Name = "Grafana Task AEJ"
+  }
+
+  depends_on = [aws_cloudwatch_log_group.grafana_logs]
+}
+
+# ECS Service para Grafana
+resource "aws_ecs_service" "grafana_service_aej" {
+  name            = "grafana-livros-service"
+  cluster         = aws_ecs_cluster.cluster_grafana_aej.id
+  task_definition = aws_ecs_task_definition.grafana_task_aej.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = [aws_subnet.subrede_publica.id]
+    security_groups  = [aws_security_group.sg_grafana.id]
+    assign_public_ip = true
+  }
+
+  tags = {
+    Name = "Grafana Service AEJ"
+  }
+}
+
+# ====================================
+# OUTPUTS - GRAFANA
+# ====================================
+
+output "grafana_info" {
+  description = "Informações de acesso ao Grafana"
+  value = {
+    cluster_name = aws_ecs_cluster.cluster_grafana_aej.name
+    service_name = aws_ecs_service.grafana_service_aej.name
+    login_user   = "admin"
+    login_pass   = "aej2025grafana"
+    port         = 3000
+    
+    get_ip_command = "aws ecs list-tasks --cluster grafana-livros-cluster --service-name grafana-livros-service --query 'taskArns[0]' --output text"
+    
+    instructions = <<-EOT
+    
+    ========================================
+    GRAFANA - INSTRUÇÕES DE ACESSO
+    ========================================
+    
+    1. AGUARDAR DEPLOYMENT (1-3 minutos):
+       - ECS está iniciando o container Grafana
+       - Verificar status: AWS Console → ECS → Clusters → grafana-livros-cluster
+    
+    2. OBTER IP PÚBLICO (executar no PowerShell):
+       $taskArn = aws ecs list-tasks --cluster grafana-livros-cluster --service-name grafana-livros-service --query 'taskArns[0]' --output text
+       $eniId = aws ecs describe-tasks --cluster grafana-livros-cluster --tasks $taskArn --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' --output text
+       aws ec2 describe-network-interfaces --network-interface-ids $eniId --query 'NetworkInterfaces[0].Association.PublicIp' --output text
+    
+    3. ACESSAR GRAFANA:
+       URL: http://<IP_PUBLICO>:3000
+       Usuário: admin
+       Senha: aej2025grafana
+    
+    4. CONFIGURAR ATHENA DATASOURCE:
+       - Settings → Data sources → Add data source
+       - Selecionar "Amazon Athena"
+       - Configurar:
+         * Authentication Provider: AWS SDK Default
+         * Default Region: us-east-1
+         * Database: livros_analytics_db
+         * Workgroup: livros_analytics_workgroup
+         * Output Location: s3://aej-athena-results-<ID>/query-results/
+    
+    5. CRIAR DASHBOARDS:
+       - Explore → Selecionar datasource Athena
+       - Executar queries SQL da tabela: vendas_livros
+    
+    EXEMPLO DE QUERY:
+    SELECT seller_state, COUNT(*) as vendas
+    FROM vendas_livros
+    GROUP BY seller_state
+    ORDER BY vendas DESC
+    LIMIT 10
+    EOT
+  }
 }

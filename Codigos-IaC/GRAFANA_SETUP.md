@@ -73,19 +73,12 @@ Criar dashboards interativos no Grafana para análise de vendas de livros usando
 
 ### **PASSO 1: Acessar Grafana**
 
-```bash
-# 1. Obter IP público do container ECS
-aws ecs describe-tasks \
-  --cluster grafana-livros-cluster \
-  --tasks $(aws ecs list-tasks --cluster grafana-livros-cluster --service-name grafana-livros-service --query 'taskArns[0]' --output text) \
-  --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' \
-  --output text
-
-# 2. Com o Network Interface ID, obter IP público
-aws ec2 describe-network-interfaces \
-  --network-interface-ids <ENI_ID> \
-  --query 'NetworkInterfaces[0].Association.PublicIp' \
-  --output text
+```powershell
+# Obter IP público do container ECS Grafana (execute todos os comandos)
+$taskArn = aws ecs list-tasks --cluster grafana-livros-cluster --service-name grafana-livros-service --query 'taskArns[0]' --output text
+$eniId = aws ecs describe-tasks --cluster grafana-livros-cluster --tasks $taskArn --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' --output text
+$grafanaIP = aws ec2 describe-network-interfaces --network-interface-ids $eniId --query 'NetworkInterfaces[0].Association.PublicIp' --output text
+Write-Host "`n========================================`nGRAFANA IP PUBLICO: $grafanaIP`n========================================`nURL: http://${grafanaIP}:3000`nUsuario: admin`nSenha: aej2025grafana`n========================================"
 ```
 
 **Acessar:** `http://<IP_PUBLICO>:3000`

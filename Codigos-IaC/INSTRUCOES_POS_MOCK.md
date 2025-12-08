@@ -41,7 +41,7 @@ Get-Item "C:\Users\leode\Downloads\infrastructure-iac\Codigos-IaC\tabelao_tratad
 terraform output etl_staging_bucket
 
 # Fazer upload do arquivo completo
-aws s3 cp "C:\Users\leode\Downloads\infrastructure-iac\Codigos-IaC\tabelao_tratado_completo.csv" s3://SEU_BUCKET_STAGING/tabelao_tratado_completo.csv
+aws s3 cp "C:\Users\leode\Downloads\Base_Final\tabelao_tratado_completo_v2.csv" s3://aej-staging-bucket-661ab2bc
 
 # Exemplo:
 # aws s3 cp "C:\Users\leode\Downloads\infrastructure-iac\Codigos-IaC\tabelao_tratado_completo.csv" s3://aej-staging-bucket-bfb246a6/

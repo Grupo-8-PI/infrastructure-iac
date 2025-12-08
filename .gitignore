@@ -54,3 +54,12 @@ override.tf.json
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# JMeter test results and generated files
+testes-jmeter/**/results/
+testes-jmeter/**/*.jtl
+testes-jmeter/**/dashboard/
+
+# Mock servers (arquivos de teste local)
+testes-jmeter/**/mock-server*.py
+testes-jmeter/**/mock-server*.js

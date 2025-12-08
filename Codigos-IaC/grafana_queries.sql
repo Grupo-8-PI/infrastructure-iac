@@ -1,27 +1,27 @@
 -- ========================================
--- QUERIES GRAFANA - ANÁLISE DE VENDAS DE LIVROS (ATUALIZADAS)
+-- QUERIES GRAFANA - ANÁLISE DE VENDAS DE LIVROS (CORRIGIDAS)
 -- ========================================
 -- Dataset: vendas_livros (AWS Athena)
--- Colunas: Data, "Dia da Semana", product_category_name, seller_city, 
---          seller_state, Quantidade, "Obra Vendida", "Valor Pago", 
---          "Forma de Pagamento"
--- IMPORTANTE: Colunas com espaços usam aspas duplas
+-- Colunas corretas (com underscore):
+--   Data, Dia_da_Semana, product_category_name, seller_city, 
+--   seller_state, Quantidade, Obra_Vendida, Valor_Pago, Forma_de_Pagamento
+-- IMPORTANTE: Colunas usam UNDERSCORE, não espaços!
 -- ========================================
 
 -- ========================================
--- QUERY 1: VENDAS POR DIA DA SEMANA (TIME SERIES)
+-- QUERY 1: TOP 5 LIVROS MAIS VENDIDOS
 -- ========================================
--- Objetivo: Identificar picos de vendas por dia da semana
--- Gráfico recomendado: Bar Chart ou Time Series
--- Responde perguntas: 6 (pico de vendas por dia)
+-- Objetivo: Identificar os livros mais vendidos por quantidade
+-- Gráfico recomendado: Bar Chart
+-- Responde perguntas: Quais livros vendem mais
 
 SELECT 
-    "Obra Vendida" as obra_vendida,
+    Obra_Vendida as obra_vendida,
     SUM(CAST(Quantidade AS DOUBLE)) as quantidade_vendida
 FROM vendas_livros
-WHERE "Obra Vendida" IS NOT NULL
+WHERE Obra_Vendida IS NOT NULL
   AND Quantidade IS NOT NULL
-GROUP BY "Obra Vendida"
+GROUP BY Obra_Vendida
 ORDER BY quantidade_vendida DESC
 LIMIT 5;
 
@@ -54,7 +54,7 @@ SELECT
         CAST(
             REGEXP_REPLACE(
                 REGEXP_REPLACE(
-                    REGEXP_REPLACE("Valor Pago", 'R\$\s*', ''),
+                    REGEXP_REPLACE(Valor_Pago, 'R\$\s*', ''),
                     '\.', ''
                 ),
                 ',', '.'
@@ -63,12 +63,10 @@ SELECT
     ) as receita_mensal
 FROM vendas_livros
 WHERE Data IS NOT NULL
-  AND "Valor Pago" IS NOT NULL
-  -- Filtrar apenas dados válidos (anos entre 2017-2018)
+  AND Valor_Pago IS NOT NULL
   AND YEAR(CAST(Data AS TIMESTAMP)) BETWEEN 2017 AND 2018
 GROUP BY DATE_TRUNC('month', CAST(Data AS TIMESTAMP))
 ORDER BY mes;
-
 
 -- ========================================
 -- QUERY 4: EVOLUÇÃO DE VENDAS POR DIA DA SEMANA
@@ -78,12 +76,12 @@ ORDER BY mes;
 -- Responde perguntas: Quais dias da semana vendem mais
 
 SELECT 
-    "Dia da Semana" as dia_semana,
+    Dia_da_Semana as dia_semana,
     SUM(
         CAST(
             REGEXP_REPLACE(
                 REGEXP_REPLACE(
-                    REGEXP_REPLACE("Valor Pago", 'R\$\s*', ''),
+                    REGEXP_REPLACE(Valor_Pago, 'R\$\s*', ''),
                     '\.', ''
                 ),
                 ',', '.'
@@ -91,11 +89,11 @@ SELECT
         )
     ) as receita_total
 FROM vendas_livros
-WHERE "Dia da Semana" IS NOT NULL
-  AND "Valor Pago" IS NOT NULL
-GROUP BY "Dia da Semana"
+WHERE Dia_da_Semana IS NOT NULL
+  AND Valor_Pago IS NOT NULL
+GROUP BY Dia_da_Semana
 ORDER BY 
-    CASE "Dia da Semana"
+    CASE Dia_da_Semana
         WHEN 'SEGUNDA-FEIRA' THEN 1
         WHEN 'TERCA-FEIRA' THEN 2
         WHEN 'QUARTA-FEIRA' THEN 3
@@ -106,23 +104,158 @@ ORDER BY
     END;
 
 -- ========================================
--- OBSERVAÇÕES IMPORTANTES
+-- KPIs - STAT PANELS
 -- ========================================
--- 1. As queries usam 'Valor Pago' no formato 'R$ XX,XX'
--- 2. Colunas com espaços requerem aspas duplas: "Dia da Semana", "Obra Vendida", etc.
--- 3. Dados mock gerados com valores realistas (2017-2018)
--- 4. Total de ~67.000 registros de livros disponíveis
--- 5. Todas as queries testadas e funcionando
 
--- KPI 1: TOTAL DE OBRAS DIFERENTES (STAT PANEL)
--- Mostra variedade de catálogo vendido
+-- QUERY FERIADOS COMERCIAIS: Análise de vendas em datas que impulsionam vendas
+-- Objetivo: Mostrar receita em feriados comerciais importantes
+-- Gráfico recomendado: Bar Chart
+-- Feriados incluídos: Natal, Dia das Crianças, Dia das Mães, Dia dos Pais, Dia dos Namorados, Ano Novo
 SELECT 
-    COUNT(DISTINCT "Obra Vendida") as obras_unicas
+    CASE 
+        WHEN (MONTH(CAST(Data AS TIMESTAMP)) = 1 AND DAY(CAST(Data AS TIMESTAMP)) = 1) THEN 'Ano Novo'
+        WHEN (MONTH(CAST(Data AS TIMESTAMP)) = 5 AND DAY(CAST(Data AS TIMESTAMP)) BETWEEN 8 AND 14 AND DAY_OF_WEEK(CAST(Data AS TIMESTAMP)) = 7) THEN 'Dia das Mães'
+        WHEN (MONTH(CAST(Data AS TIMESTAMP)) = 6 AND DAY(CAST(Data AS TIMESTAMP)) = 12) THEN 'Dia dos Namorados'
+        WHEN (MONTH(CAST(Data AS TIMESTAMP)) = 8 AND DAY(CAST(Data AS TIMESTAMP)) BETWEEN 8 AND 14 AND DAY_OF_WEEK(CAST(Data AS TIMESTAMP)) = 7) THEN 'Dia dos Pais'
+        WHEN (MONTH(CAST(Data AS TIMESTAMP)) = 10 AND DAY(CAST(Data AS TIMESTAMP)) = 12) THEN 'Dia das Crianças'
+        WHEN (MONTH(CAST(Data AS TIMESTAMP)) = 12 AND DAY(CAST(Data AS TIMESTAMP)) = 25) THEN 'Natal'
+    END as feriado,
+    SUM(
+        CAST(
+            REGEXP_REPLACE(
+                REGEXP_REPLACE(
+                    REGEXP_REPLACE(Valor_Pago, 'R\$\s*', ''),
+                    '\.', ''
+                ),
+                ',', '.'
+            ) AS DOUBLE
+        )
+    ) as receita_total
 FROM vendas_livros
-WHERE "Obra Vendida" IS NOT NULL;
+WHERE Data IS NOT NULL
+  AND Valor_Pago IS NOT NULL
+  AND YEAR(CAST(Data AS TIMESTAMP)) BETWEEN 2017 AND 2018
+  AND (
+      (MONTH(CAST(Data AS TIMESTAMP)) = 1 AND DAY(CAST(Data AS TIMESTAMP)) = 1)
+      OR (MONTH(CAST(Data AS TIMESTAMP)) = 5 AND DAY(CAST(Data AS TIMESTAMP)) BETWEEN 8 AND 14 AND DAY_OF_WEEK(CAST(Data AS TIMESTAMP)) = 7)
+      OR (MONTH(CAST(Data AS TIMESTAMP)) = 6 AND DAY(CAST(Data AS TIMESTAMP)) = 12)
+      OR (MONTH(CAST(Data AS TIMESTAMP)) = 8 AND DAY(CAST(Data AS TIMESTAMP)) BETWEEN 8 AND 14 AND DAY_OF_WEEK(CAST(Data AS TIMESTAMP)) = 7)
+      OR (MONTH(CAST(Data AS TIMESTAMP)) = 10 AND DAY(CAST(Data AS TIMESTAMP)) = 12)
+      OR (MONTH(CAST(Data AS TIMESTAMP)) = 12 AND DAY(CAST(Data AS TIMESTAMP)) = 25)
+  )
+GROUP BY 
+    CASE 
+        WHEN (MONTH(CAST(Data AS TIMESTAMP)) = 1 AND DAY(CAST(Data AS TIMESTAMP)) = 1) THEN 'Ano Novo'
+        WHEN (MONTH(CAST(Data AS TIMESTAMP)) = 5 AND DAY(CAST(Data AS TIMESTAMP)) BETWEEN 8 AND 14 AND DAY_OF_WEEK(CAST(Data AS TIMESTAMP)) = 7) THEN 'Dia das Mães'
+        WHEN (MONTH(CAST(Data AS TIMESTAMP)) = 6 AND DAY(CAST(Data AS TIMESTAMP)) = 12) THEN 'Dia dos Namorados'
+        WHEN (MONTH(CAST(Data AS TIMESTAMP)) = 8 AND DAY(CAST(Data AS TIMESTAMP)) BETWEEN 8 AND 14 AND DAY_OF_WEEK(CAST(Data AS TIMESTAMP)) = 7) THEN 'Dia dos Pais'
+        WHEN (MONTH(CAST(Data AS TIMESTAMP)) = 10 AND DAY(CAST(Data AS TIMESTAMP)) = 12) THEN 'Dia das Crianças'
+        WHEN (MONTH(CAST(Data AS TIMESTAMP)) = 12 AND DAY(CAST(Data AS TIMESTAMP)) = 25) THEN 'Natal'
+    END
+ORDER BY receita_total DESC;
 
--- KPI 2: CRESCIMENTO MENSAL (GAUGE %)
--- Compara receita do último mês vs mês anterior
+-- QUERY FERIADOS COMERCIAIS (com quantidade): Versão com total_vendas
+-- Feriados que impulsionam vendas: Natal, Dia das Crianças, Dia das Mães, Dia dos Pais, Dia dos Namorados, Ano Novo
+SELECT 
+    CASE 
+        WHEN (MONTH(CAST(Data AS TIMESTAMP)) = 1 AND DAY(CAST(Data AS TIMESTAMP)) = 1) THEN 'Ano Novo'
+        WHEN (MONTH(CAST(Data AS TIMESTAMP)) = 5 AND DAY(CAST(Data AS TIMESTAMP)) BETWEEN 8 AND 14 AND DAY_OF_WEEK(CAST(Data AS TIMESTAMP)) = 7) THEN 'Dia das Mães'
+        WHEN (MONTH(CAST(Data AS TIMESTAMP)) = 6 AND DAY(CAST(Data AS TIMESTAMP)) = 12) THEN 'Dia dos Namorados'
+        WHEN (MONTH(CAST(Data AS TIMESTAMP)) = 8 AND DAY(CAST(Data AS TIMESTAMP)) BETWEEN 8 AND 14 AND DAY_OF_WEEK(CAST(Data AS TIMESTAMP)) = 7) THEN 'Dia dos Pais'
+        WHEN (MONTH(CAST(Data AS TIMESTAMP)) = 10 AND DAY(CAST(Data AS TIMESTAMP)) = 12) THEN 'Dia das Crianças'
+        WHEN (MONTH(CAST(Data AS TIMESTAMP)) = 12 AND DAY(CAST(Data AS TIMESTAMP)) = 25) THEN 'Natal'
+    END as feriado,
+    COUNT(*) as total_vendas,
+    SUM(
+        CAST(
+            REGEXP_REPLACE(
+                REGEXP_REPLACE(
+                    REGEXP_REPLACE(Valor_Pago, 'R\$\s*', ''),
+                    '\.', ''
+                ),
+                ',', '.'
+            ) AS DOUBLE
+        )
+    ) as receita_total
+FROM vendas_livros
+WHERE Data IS NOT NULL
+  AND Valor_Pago IS NOT NULL
+  AND YEAR(CAST(Data AS TIMESTAMP)) BETWEEN 2017 AND 2018
+  AND (
+      (MONTH(CAST(Data AS TIMESTAMP)) = 1 AND DAY(CAST(Data AS TIMESTAMP)) = 1)
+      OR (MONTH(CAST(Data AS TIMESTAMP)) = 5 AND DAY(CAST(Data AS TIMESTAMP)) BETWEEN 8 AND 14 AND DAY_OF_WEEK(CAST(Data AS TIMESTAMP)) = 7)
+      OR (MONTH(CAST(Data AS TIMESTAMP)) = 6 AND DAY(CAST(Data AS TIMESTAMP)) = 12)
+      OR (MONTH(CAST(Data AS TIMESTAMP)) = 8 AND DAY(CAST(Data AS TIMESTAMP)) BETWEEN 8 AND 14 AND DAY_OF_WEEK(CAST(Data AS TIMESTAMP)) = 7)
+      OR (MONTH(CAST(Data AS TIMESTAMP)) = 10 AND DAY(CAST(Data AS TIMESTAMP)) = 12)
+      OR (MONTH(CAST(Data AS TIMESTAMP)) = 12 AND DAY(CAST(Data AS TIMESTAMP)) = 25)
+  )
+GROUP BY 
+    CASE 
+        WHEN (MONTH(CAST(Data AS TIMESTAMP)) = 1 AND DAY(CAST(Data AS TIMESTAMP)) = 1) THEN 'Ano Novo'
+        WHEN (MONTH(CAST(Data AS TIMESTAMP)) = 5 AND DAY(CAST(Data AS TIMESTAMP)) BETWEEN 8 AND 14 AND DAY_OF_WEEK(CAST(Data AS TIMESTAMP)) = 7) THEN 'Dia das Mães'
+        WHEN (MONTH(CAST(Data AS TIMESTAMP)) = 6 AND DAY(CAST(Data AS TIMESTAMP)) = 12) THEN 'Dia dos Namorados'
+        WHEN (MONTH(CAST(Data AS TIMESTAMP)) = 8 AND DAY(CAST(Data AS TIMESTAMP)) BETWEEN 8 AND 14 AND DAY_OF_WEEK(CAST(Data AS TIMESTAMP)) = 7) THEN 'Dia dos Pais'
+        WHEN (MONTH(CAST(Data AS TIMESTAMP)) = 10 AND DAY(CAST(Data AS TIMESTAMP)) = 12) THEN 'Dia das Crianças'
+        WHEN (MONTH(CAST(Data AS TIMESTAMP)) = 12 AND DAY(CAST(Data AS TIMESTAMP)) = 25) THEN 'Natal'
+    END
+ORDER BY receita_total DESC;
+
+-- KPI 1: RECEITA TOTAL
+SELECT 
+    SUM(
+        CAST(
+            REGEXP_REPLACE(
+                REGEXP_REPLACE(
+                    REGEXP_REPLACE(Valor_Pago, 'R\$\s*', ''),
+                    '\.', ''
+                ),
+                ',', '.'
+            ) AS DOUBLE
+        )
+    ) as receita_total
+FROM vendas_livros
+WHERE Valor_Pago IS NOT NULL;
+
+-- KPI 2: TOTAL DE VENDAS (da semana que mais vendeu - para demonstração)
+SELECT COUNT(*) as total_vendas
+FROM vendas_livros
+WHERE Data IS NOT NULL
+  AND DATE_TRUNC('week', CAST(Data AS TIMESTAMP)) = (
+      SELECT DATE_TRUNC('week', CAST(Data AS TIMESTAMP)) as semana
+      FROM vendas_livros
+      WHERE Data IS NOT NULL
+        AND YEAR(CAST(Data AS TIMESTAMP)) BETWEEN 2017 AND 2018
+      GROUP BY DATE_TRUNC('week', CAST(Data AS TIMESTAMP))
+      ORDER BY COUNT(*) DESC
+      LIMIT 1
+  );
+
+-- KPI 3: TICKET MÉDIO
+SELECT 
+    ROUND(
+        AVG(
+            CAST(
+                REGEXP_REPLACE(
+                    REGEXP_REPLACE(
+                        REGEXP_REPLACE(Valor_Pago, 'R\$\s*', ''),
+                        '\.', ''
+                    ),
+                    ',', '.'
+                ) AS DOUBLE
+            )
+        ),
+        2
+    ) as ticket_medio
+FROM vendas_livros
+WHERE Valor_Pago IS NOT NULL;
+
+-- KPI 4: TOTAL DE OBRAS DIFERENTES
+SELECT 
+    COUNT(DISTINCT Obra_Vendida) as obras_unicas
+FROM vendas_livros
+WHERE Obra_Vendida IS NOT NULL;
+
+-- KPI 5: CRESCIMENTO MENSAL (%)
 WITH receita_mensal AS (
     SELECT 
         DATE_TRUNC('month', CAST(Data AS TIMESTAMP)) as mes,
@@ -130,7 +263,7 @@ WITH receita_mensal AS (
             CAST(
                 REGEXP_REPLACE(
                     REGEXP_REPLACE(
-                        REGEXP_REPLACE("Valor Pago", 'R\$\s*', ''),
+                        REGEXP_REPLACE(Valor_Pago, 'R\$\s*', ''),
                         '\.', ''
                     ),
                     ',', '.'
@@ -139,7 +272,7 @@ WITH receita_mensal AS (
         ) as receita
     FROM vendas_livros
     WHERE Data IS NOT NULL
-      AND "Valor Pago" IS NOT NULL
+      AND Valor_Pago IS NOT NULL
       AND YEAR(CAST(Data AS TIMESTAMP)) BETWEEN 2017 AND 2018
     GROUP BY DATE_TRUNC('month', CAST(Data AS TIMESTAMP))
     ORDER BY mes DESC
@@ -147,13 +280,12 @@ WITH receita_mensal AS (
 )
 SELECT 
     ROUND(
-        ((MAX(receita) - MIN(receita)) / MIN(receita)) * 100,
+        ((MAX(receita) - MIN(receita)) / NULLIF(MIN(receita), 0)) * 100,
         2
     ) as crescimento_percentual
 FROM receita_mensal;
 
--- KPI 3: TOP CATEGORIA DO MÊS (STAT PANEL)
--- Mostra categoria com mais vendas no mês atual
+-- KPI 6: TOP CATEGORIA DO MÊS
 SELECT 
     product_category_name as categoria_lider,
     COUNT(*) as vendas
@@ -169,35 +301,47 @@ ORDER BY vendas DESC
 LIMIT 1;
 
 -- ========================================
--- CONFIGURAÇÃO GRAFANA
+-- REFERÊNCIA DE COLUNAS
 -- ========================================
--- DASHBOARD SUGERIDO:
+-- Nome no Athena          | Tipo    | Descrição
+-- ------------------------|---------|---------------------------
+-- Data                    | string  | Data e hora da compra
+-- Dia_da_Semana           | string  | Dia da semana (SEGUNDA-FEIRA, etc)
+-- product_category_name   | string  | Categoria do produto
+-- seller_city             | string  | Cidade do vendedor
+-- seller_state            | string  | Estado do vendedor (SP, RJ, etc)
+-- Quantidade              | double  | Quantidade vendida
+-- Obra_Vendida            | string  | Nome do livro
+-- Valor_Pago              | string  | Valor no formato "R$ XX,XX"
+-- Forma_de_Pagamento      | string  | PIX, CREDITO, DEBITO, etc
+-- ========================================
 
--- LINHA 1 - KPIs (Stat Panels):
--- 1. KPI 1 → Receita Total (formato: R$ 1.234.567,89)
--- 2. KPI 2 → Total de Vendas (formato: 3,139)
--- 3. KPI 3 → Ticket Médio (formato: R$ 45,50)
--- 4. KPI 4 → Obras Únicas (formato: 238)
+-- ========================================
+-- CONFIGURAÇÃO GRAFANA - LAYOUT SUGERIDO
+-- ========================================
+-- LINHA 1 - KPIs (4 Stat Panels):
+--   1. Receita Total (KPI 1) - cor verde
+--   2. Total de Vendas (KPI 2) - cor azul
+--   3. Ticket Médio (KPI 3) - cor laranja
+--   4. Obras Únicas (KPI 4) - cor roxo
 
--- LINHA 2 - Gauges:
--- 5. KPI 5 → Crescimento % (gauge 0-100%, thresholds: <0 red, 0-5 yellow, >5 green)
--- 6. KPI 6 → Categoria Líder (stat com nome da categoria)
+-- LINHA 2 - Gráficos Principais:
+--   5. Top 5 Livros (Query 1) - Bar Chart vertical
+--   6. Top 10 por Receita (Query 5) - Horizontal Bar
 
--- LINHA 3 - Gráficos Principais:
--- 7. Query 1 → Bar Chart (Top 5 Livros por Quantidade)
--- 8. Query 2 → Horizontal Bar (Top 10 Livros por Receita)
+-- LINHA 3 - Análise Temporal:
+--   7. Sazonalidade Mensal (Query 3) - Time Series Line
+--   8. Vendas por Dia da Semana (Query 4) - Bar Chart
 
--- LINHA 4 - Time Series:
--- 9. Query 3 → Line Chart (Receita Mensal - sazonalidade)
--- 10. Query 5 → Multi-line Chart (Evolução Semanal - 3 linhas: receita, ticket médio, vendas)
+-- LINHA 4 - Análise Segmentada:
+--   9. Vendas por Estado (Query 6) - Pie Chart
+--   10. Formas de Pagamento (Query 7) - Donut Chart
 
--- LINHA 5 - Análise Comportamental:
--- 11. Query 4 → Bar Chart (Receita por Dia da Semana)
+-- Cores sugeridas:
+--   Receita: #73BF69 (verde)
+--   Vendas: #5794F2 (azul)
+--   Ticket: #FF9830 (laranja)
+--   Estados: Cores automáticas do Grafana
 
--- FORMATAÇÃO SUGERIDA:
--- - Stat Panels: Tamanho 6 colunas cada (4 na linha)
--- - Gauges: Tamanho 6 colunas (2 na linha)
--- - Gráficos: Tamanho 12 colunas (full width)
--- - Cores: Azul (receita), Verde (crescimento), Laranja (ticket médio)
--- - Refresh: 5 minutos
--- - Time Range: Last 2 years
+-- Refresh: 5 minutos
+-- Time Range: Last 2 years
